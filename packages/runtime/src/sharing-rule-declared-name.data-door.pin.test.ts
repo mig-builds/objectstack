@@ -20,6 +20,10 @@
  * This file does: a booted composition, an administrator signed in, and
  * `POST` / `PATCH {basePath}/data/sys_sharing_rule` over the HTTP app, so what
  * is asserted is the wire answer a client receives — `status` and `code`.
+ * The `/data` door's declared-4xx answer is its flat envelope: `code` is the
+ * machine token at the top level, beside the human `error` sentence
+ * (`mapDataError`, `@objectstack/types`) — read there, not through a fallback
+ * that would also accept the nested `error.code` other families answer.
  *
  * Composition: the plugin set, in order, `@objectstack/verify`'s `bootStack`
  * uses (it mirrors `objectstack dev` / `serve`), as the #21516 and #21454 pins
@@ -184,9 +188,9 @@ describe('[ADR-0131 D6 regime C] POST / PATCH /data/sys_sharing_rule onto a decl
     const res = await as(adminToken, 'POST', RULES, authoredRow(DECLARED));
     const payload = await readJson(res);
     expect(res.status, JSON.stringify(payload)).toBe(409);
-    expect(payload?.error?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
+    expect(payload?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
     // The catalogue's own code for the status, not a restated pair.
-    expect(HttpStatusErrorCodeMap[409]).toBe(payload?.error?.code);
+    expect(HttpStatusErrorCodeMap[409]).toBe(payload?.code);
     expect(await rowsNamed(DECLARED)).toEqual([]);
   });
 
@@ -197,8 +201,8 @@ describe('[ADR-0131 D6 regime C] POST / PATCH /data/sys_sharing_rule onto a decl
     const res = await as(adminToken, 'PATCH', `${RULES}/${own.id}`, { name: DECLARED });
     const payload = await readJson(res);
     expect(res.status, JSON.stringify(payload)).toBe(409);
-    expect(payload?.error?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
-    expect(HttpStatusErrorCodeMap[409]).toBe(payload?.error?.code);
+    expect(payload?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
+    expect(HttpStatusErrorCodeMap[409]).toBe(payload?.code);
     expect(await rowsNamed(DECLARED)).toEqual([]);
     expect((await rowsNamed(OWN)).map((r) => r.id)).toEqual([own.id]);
   });
