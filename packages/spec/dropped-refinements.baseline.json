@@ -281,6 +281,11 @@
         "list.timeline.groupByField"
       ]
     },
+    "api/HttpFindQueryParams": {
+      "sites": [
+        "top.options[1].in"
+      ]
+    },
     "api/ImportRequest": {
       "sites": [
         ""
@@ -945,6 +950,11 @@
     "data/QueryFilter": {
       "sites": [
         "where.lazy"
+      ]
+    },
+    "data/QueryPageWindowParam": {
+      "sites": [
+        "options[1].in"
       ]
     },
     "data/QueryTransportParams": {

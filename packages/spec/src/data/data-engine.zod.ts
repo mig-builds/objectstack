@@ -949,6 +949,11 @@ export const QueryPageWindowParamSchema = lazySchema(() => z.union([
     .transform((text) => Number(text)),
 ]).describe('Page window — a non-negative integer, or the digits a querystring carries it as'));
 
+export type QueryPageWindow = z.input<typeof QueryPageWindowSchema>;
+export type QueryPageWindowParam = z.input<typeof QueryPageWindowParamSchema>;
+/** Post-parse shape of {@link QueryPageWindowParam} — the count, the querystring digits converted (ADR-0122). */
+export type QueryPageWindowParamParsed = z.infer<typeof QueryPageWindowParamSchema>;
+
 /**
  * The transport query parameters — every spelling the two tables above name
  * that is not itself a QueryAST key: the `$`-prefixed forms, the plural

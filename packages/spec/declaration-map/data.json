@@ -251,6 +251,8 @@
     "PostgresConfigSchema": "data/PostgresConfig",
     "QueryFilter": "data/QueryFilter",
     "QueryFilterSchema": "data/QueryFilter",
+    "QueryPageWindowParamSchema": "data/QueryPageWindowParam",
+    "QueryPageWindowSchema": "data/QueryPageWindow",
     "QuerySchema": "data/Query",
     "QueryTransportParams": "data/QueryTransportParams",
     "QueryTransportParamsSchema": "data/QueryTransportParams",
