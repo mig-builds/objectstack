@@ -278,6 +278,8 @@ function classifyHolePositions(html: string, holes: ReadonlyArray<{ start: numbe
   let attrValueStart = -1;
   let declaration = '';
   let textElement = '';
+  /** Inside a script's text, past a comment opener and not yet past a closer. */
+  let scriptEscaped = false;
   let foreignDepth = 0;
 
   const emitTag = (selfClosing: boolean) => {
@@ -291,6 +293,7 @@ function classifyHolePositions(html: string, holes: ReadonlyArray<{ start: numbe
     }
     if (foreignDepth > 0) return 'data' as State;
     textElement = tagName;
+    scriptEscaped = false;
     if (tagName === 'plaintext') return 'plaintext' as State;
     if (RAW_TEXT_ELEMENTS.has(tagName)) return 'raw-text' as State;
     if (ESCAPABLE_TEXT_ELEMENTS.has(tagName)) return 'escapable-text' as State;
@@ -355,8 +358,16 @@ function classifyHolePositions(html: string, holes: ReadonlyArray<{ start: numbe
       continue;
     }
     const c = html[i];
+    // A script's text has escape states of its own, in which an end tag may
+    // not end the element. They are not modelled: from a comment opener on,
+    // the scan stays in raw text until an end tag that follows a comment
+    // closer, which can only refuse more than the parser would.
+    if (state === 'raw-text' && textElement === 'script') {
+      if (html.startsWith('<!--', i)) scriptEscaped = true;
+      else if (html.startsWith('-->', i)) scriptEscaped = false;
+    }
     // States that read more than one character at a time.
-    if ((state === 'raw-text' || state === 'escapable-text') && closesTextElement(i)) {
+    if ((state === 'raw-text' || state === 'escapable-text') && !scriptEscaped && closesTextElement(i)) {
       state = 'end-tag-open';
       tagName = '';
       endTag = true;
@@ -399,7 +410,9 @@ function classifyHolePositions(html: string, holes: ReadonlyArray<{ start: numbe
         if (c === '/') return 'end-tag-open';
         if (c === '?') return 'bogus-comment';
         if (isAlpha(c)) { tagName = c.toLowerCase(); endTag = false; return 'tag-name'; }
-        return 'data';
+        // A character that opens no tag is reconsumed in the data state, where
+        // only another `<` means anything.
+        return step('data', c);
       case 'end-tag-open':
         if (isAlpha(c)) { tagName = c.toLowerCase(); endTag = true; return 'tag-name'; }
         if (c === '>') return 'data';

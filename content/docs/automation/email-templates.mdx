@@ -86,8 +86,8 @@ never needs triple braces.
 element text and for a quoted attribute value that holds plain text, so those
 are the supported placements for `{{path}}`. A hole anywhere else — inside a
 `script` or `style` element, a comment, a tag outside any attribute value, an
-unquoted attribute value, or an attribute read as a URL (`href`, `src`, …), an
-event handler, a style or markup — is refused by `os validate`, `os build`,
+unquoted attribute value, an attribute read as a URL (`href`, `src`, …), an
+event handler, a style or markup, or SVG or MathML content — is refused by `os validate`, `os build`,
 `os lint` and the metadata publish door, and so is a `{{{path}}}` hole outside
 the `href` shape above. The refusal (`email-template-hole-placement`, a
 `422 INVALID_METADATA` at the publish door) names the placement and the
