@@ -127,11 +127,15 @@ describe('the registry entry', () => {
 });
 
 describe('the runtime publish gate, for an email_template write', () => {
-  it('⭐ LIT — refuses the written template, located by name on the wire', () => {
+  it('⭐ LIT — refuses the written template, located on the written template itself', () => {
     const result = runRuntimeAuthoringRules({ type: 'email_template', item: template({ bodyHtml: IN_URL_ATTRIBUTE }) });
     expect(result.rulesRun).toContain('validateEmailTemplateHolePlacements');
     expect(ruleIds(result.errors)).toEqual([EMAIL_TEMPLATE_HOLE_PLACEMENT]);
-    expect(result.errors[0].path).toBe('emailTemplates.acme.welcome.bodyHtml');
+    // `emailTemplates` is no context collection, so the candidate holds the
+    // written template alone and its positional index is never re-keyed: the
+    // index names that template, and `where` carries its name.
+    expect(result.errors[0].path).toBe('emailTemplates[0].bodyHtml');
+    expect(result.errors[0].where).toContain('acme.welcome');
   });
 
   it('publishes a template whose every hole is supported', () => {
