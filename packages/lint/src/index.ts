@@ -936,6 +936,15 @@ export {
   PERMISSION_RETIRED_LIFECYCLE_RESIDUE,
 } from './validate-retired-permission-residue.js';
 
+// [#25189] A hole an email template's bodyHtml places where the mail renderer
+// cannot encode it for that placement (ruling 6335348115 on #25082, F1 A2).
+// The rule id is published for `--json` consumers (`rule-id-barrel-exports.test.ts`).
+export {
+  validateEmailTemplateHolePlacements,
+  EMAIL_TEMPLATE_HOLE_PLACEMENT,
+} from './validate-email-template-hole-placements.js';
+export type { EmailTemplateHolePlacementFinding } from './validate-email-template-hole-placements.js';
+
 export { lintAutonumberFormats } from './lint-autonumber-formats.js';
 export type { AutonumberLintFinding } from './lint-autonumber-formats.js';
 export {
