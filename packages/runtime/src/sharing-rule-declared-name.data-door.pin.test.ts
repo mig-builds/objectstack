@@ -28,13 +28,19 @@
  * Composition: the plugin set, in order, `@objectstack/verify`'s `bootStack`
  * uses (it mirrors `objectstack dev` / `serve`), as the #21516 and #21454 pins
  * assemble it, with the production `autoDefaultOrganization` default so the
- * administrator's rows have an organization to belong to. The declared rule
- * comes from the application's own `sharingRules`, as a real stack declares
- * one. The boot is paid in `beforeAll`, never inside a case.
+ * administrator's rows have an organization to belong to. The declared rules
+ * come from the application's own `sharingRules`, as a real stack declares
+ * them. The boot is paid in `beforeAll`, never inside a case.
  *
  * The CONTROL is the same create under a name no declaration holds: it lands,
  * so the 409 is the guard's answer about the name and not the rig refusing
  * every write to this object.
+ *
+ * Each refusal targets its OWN declared rule, and `code` is asserted beside
+ * `status`, because this object's unique constraint on the name also answers
+ * 409 (`UNIQUE_VIOLATION`): with one shared name, a create that wrongly landed
+ * would turn the rename's answer into that other 409, and a status-only pin
+ * would read it as the guard's.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -57,10 +63,23 @@ const API = '/api/v1';
 const ADMIN = { email: 'admin@objectos.ai', password: 'admin123' };
 const RULES = '/data/sys_sharing_rule';
 
-/** The rule the application declares — the name no authored row may take. */
-const DECLARED = 'pin_red_projects_declared';
+/** The declared rule the create targets — a name no authored row may take. */
+const DECLARED_CREATE = 'pin_red_projects_declared';
+/** The declared rule the rename targets. */
+const DECLARED_RENAME = 'pin_amber_projects_declared';
 /** A name no declaration holds: the control's, and the row the rename starts from. */
 const OWN = 'pin_red_projects_ours';
+
+const declaredRule = (name: string, status: string) => ({
+  type: 'criteria',
+  name,
+  label: `${status} projects (declared)`,
+  object: 'pin_project',
+  condition: `record.status == '${status}'`,
+  accessLevel: 'read',
+  sharedWith: { type: 'user', value: 'usr_declared_recipient' },
+  active: true,
+});
 
 const PIN_APP: any = {
   manifest: { id: 'com.pin.declaredrulename', name: 'Declared rule name pins', version: '1.0.0' },
@@ -74,18 +93,7 @@ const PIN_APP: any = {
       },
     },
   ],
-  sharingRules: [
-    {
-      type: 'criteria',
-      name: DECLARED,
-      label: 'Red projects (declared)',
-      object: 'pin_project',
-      condition: "record.status == 'red'",
-      accessLevel: 'read',
-      sharedWith: { type: 'user', value: 'usr_declared_recipient' },
-      active: true,
-    },
-  ],
+  sharingRules: [declaredRule(DECLARED_CREATE, 'red'), declaredRule(DECLARED_RENAME, 'amber')],
 };
 
 /** A complete authored row, as Setup's New form posts it. */
@@ -168,9 +176,13 @@ afterAll(async () => {
 }, 60_000);
 
 describe('[ADR-0131 D6 regime C] precondition and control', () => {
-  it('the application\'s rule is declared, as the sharing-rule service the guard asks reads it', async () => {
+  it('the application\'s rules are declared, as the sharing-rule service the guard asks reads them', async () => {
     const rules: any = await kernel.getServiceAsync('sharingRules');
-    expect((await rules.declaredRuleNamed(DECLARED))?.name).toBe(DECLARED);
+    for (const name of [DECLARED_CREATE, DECLARED_RENAME]) {
+      expect((await rules.declaredRuleNamed(name))?.name).toBe(name);
+      // A declared rule has no row: nothing below can collide with one.
+      expect(await rowsNamed(name)).toEqual([]);
+    }
     expect(await rules.declaredRuleNamed(OWN)).toBeNull();
   });
 
@@ -185,25 +197,25 @@ describe('[ADR-0131 D6 regime C] precondition and control', () => {
 
 describe('[ADR-0131 D6 regime C] POST / PATCH /data/sys_sharing_rule onto a declared rule\'s name', () => {
   it('a create taking the declared name answers 409 RESOURCE_CONFLICT, and no row lands', async () => {
-    const res = await as(adminToken, 'POST', RULES, authoredRow(DECLARED));
+    const res = await as(adminToken, 'POST', RULES, authoredRow(DECLARED_CREATE));
     const payload = await readJson(res);
     expect(res.status, JSON.stringify(payload)).toBe(409);
     expect(payload?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
     // The catalogue's own code for the status, not a restated pair.
     expect(HttpStatusErrorCodeMap[409]).toBe(payload?.code);
-    expect(await rowsNamed(DECLARED)).toEqual([]);
+    expect(await rowsNamed(DECLARED_CREATE)).toEqual([]);
   });
 
   it('a rename onto the declared name answers 409 RESOURCE_CONFLICT, and the row keeps its name', async () => {
     const [own] = await rowsNamed(OWN);
     expect(own?.id, 'the control row the rename starts from').toBeTruthy();
 
-    const res = await as(adminToken, 'PATCH', `${RULES}/${own.id}`, { name: DECLARED });
+    const res = await as(adminToken, 'PATCH', `${RULES}/${own.id}`, { name: DECLARED_RENAME });
     const payload = await readJson(res);
     expect(res.status, JSON.stringify(payload)).toBe(409);
     expect(payload?.code, JSON.stringify(payload)).toBe('RESOURCE_CONFLICT');
     expect(HttpStatusErrorCodeMap[409]).toBe(payload?.code);
-    expect(await rowsNamed(DECLARED)).toEqual([]);
+    expect(await rowsNamed(DECLARED_RENAME)).toEqual([]);
     expect((await rowsNamed(OWN)).map((r) => r.id)).toEqual([own.id]);
   });
 });
