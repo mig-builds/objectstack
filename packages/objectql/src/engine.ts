@@ -7886,9 +7886,12 @@ export class ObjectQL implements IObjectQLEngine {
    * True when the recorded verdict is `none` while the same ladder over the
    * engine's own facts — every rung but the exemption — would have walled it.
    * That is plugin-security's own `crossedByPlatformAdmin` test (the ladder
-   * asked a second time with only the exemption withheld), read from the
-   * recorded value: no posture, schema or permission rung is re-derived here,
-   * and a `single` posture answers `none` both ways, so it is no crossing.
+   * asked a second time with only the exemption withheld), with the engine's
+   * existing fallback ({@link engineLayer0Verdict}, what an unrecorded
+   * operation is scoped by) as the second asking: no rung is computed beside
+   * the one ladder, and a `single` posture answers `none` both ways, so it is
+   * no crossing. The #12974 owner bypass records `none` on READS only, where
+   * the declaration is inert.
    *
    * Absence is not exemption: a by-id write, a system context or a stack with
    * no security layer records nothing, and answers false. A recorded value
