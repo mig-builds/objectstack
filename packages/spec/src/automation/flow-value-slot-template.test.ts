@@ -198,7 +198,7 @@ describe('a head CEL claims is read through `vars`, the route a `$`-named head t
     expect(refusalOf('{record.true}')).not.toContain('the guarded form');
   });
 
-  it('an index anywhere in the path leaves it unguarded — `has()` refuses one at run time', () => {
+  it('an indexed intermediate segment stays unguarded even though `has()` accepts it at run time', () => {
     expect(refusalOf('{rows.0.name}')).toContain("source: 'rows[0].name' }");
     expect(refusalOf('{rows.0.name}')).not.toContain('the guarded form');
   });
