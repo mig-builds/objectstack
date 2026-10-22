@@ -1,5 +1,153 @@
 # @objectstack/metadata-protocol
 
+## 18.1.0
+
+### Minor Changes
+
+- 7cacad5: **Shipped in 18.0.0**, whose CHANGELOG missed this entry; listed here one release late.
+  
+  feat(plugin-sharing,plugin-approvals,metadata-protocol)!: the organization-less readers of sharing rules, approval units and the seed loader retire (ADR-0131 D2/D8, 18.x step 7)
+  
+  Clause-②: yes (narrowing): a declared sharing rule served under `single` gains the `deploymentWide: true` key on the wire in place of `organization_id: null` (widening); the sharing-rule admin reads, the approval unit screen and the scoped seed pre-load stop reading rows with no organization (narrowing). A declared rule keeps applying deployment-wide; nothing an author declares is refused.
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No key of any metadata schema is removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite and no tombstone. The data migration a database with organization-less rows needs is the operator's ceremony, `os migrate organization-ownership`, stated below; the 18.x boot refusal already names it. The one wire change is a declared sharing rule's response row (`deploymentWide: true` in place of `organization_id: null`), not an authorable key. -->
+  
+  **BREAKING** — readers narrow. On a certified database (every 18.x database: a fresh install, or one the organization-ownership ceremony upgraded) none of these readers has a row left to find; they matter only to a database that still holds organization-less rows, which 18.x refuses at boot.
+  
+  - **A declared sharing rule is deployment-wide by a typed marker, never a NULL organization.** Under `single` it is served as one projection carrying `deploymentWide: true` and no `organization_id` key (was `organization_id: null`); its criteria sweep carries no tenant (the predicate ADR-0131 D8 computes under `single` is none) and each grant is stamped with its record's organization. Under `group` / `isolated` it is served once per organization, exactly as before. FROM `rule.organization_id === null` TO `rule.deploymentWide === true` for any client that told a declared rule apart by its NULL organization (`GET /api/v1/sharing/rules`, `GET /api/v1/sharing/rules/:idOrName`).
+  - **The contract names the marker.** `SharingRuleRow` (`@objectstack/spec/contracts`) declares `deploymentWide?: true`, documented: set only on a declared rule's `single` projection, which carries no `organization_id`.
+  - **A stored sharing rule with no organization sweeps nothing and grants nothing** where the deployment registers the organization object, reported once at `error` with the remedy (run the organization-ownership ceremony, or re-author the rule in its organization). A lean embedding with no organization object keeps sweeping the deployment: it has no organization to scope by.
+  - **Sharing-rule administration reads the caller's own organization only.** `listRules`, `getRule` (by id and by name), `evaluateRule` and `deleteRule` no longer reach an `organization_id = null` row for an organization-bound admin; system contexts and platform operators keep the unfiltered read. Deleting a "platform-global" rule no longer needs platform authority, because that rule class no longer exists: the guard is removed.
+  - **The approval unit screen is a strict equality.** A `department` approver resolves a `sys_business_unit` in the request's organization only (was: that organization or no organization). The ceremony attributes `sys_business_unit`, and a fresh install stamps it.
+  - **The scoped seed pre-load reads one thing: its organization's rows.** The second read that collected keys held by organization-less rows, and refused to twin or adopt them, is deleted; a scoped upsert/ignore/update issues no `organization_id IS NULL` read on any path.
+  
+  Remedy for a database that still holds organization-less rows: `os migrate organization-ownership --out PLAN`, review it, then `os migrate organization-ownership --apply --plan-file PLAN --backup-taken`.
+- d5d8146: feat(driver-sql,driver-turso,driver-memory,objectql,metadata-protocol,cli): an organization-scoped unique index keys the plain organization column, and an index an earlier release built with `COALESCE(organization_id, '__global__')` is read as the same index on a certified database
+  
+  Clause-②: yes (widening)
+  Metadata-protocol: semantic
+  
+  18.x step 7b-1 + 7b-2 (ADR-0131 D1: the tenant column is NOT NULL, so the NULL-organization bucket of ADR-0120 D3 has no rows left to hold).
+  
+  - **New DDL is plain.** A field-level `unique: true` / `'organization'` on a tenant-scoped object, and a declared index with `unique: 'organization'`, now build `UNIQUE (organization_id, …)` instead of `UNIQUE (COALESCE(organization_id, '__global__'), …)`. Index names do not change. The same holds for the Turso remote face, the MySQL hash shadow (its generated column now hashes the plain column), the in-memory driver's unique enforcement, `os generate migration` (which now emits the organization composite it used to list as NOT EMITTED), and the `sys_setting` row-identity index (`COALESCE(user_id, '')` stays).
+  - **Existing indexes stay as they are.** Nothing is renamed, and no declared organization composite is dropped or rebuilt by the boot, `os migrate plan` or `os migrate apply`; on SQLite the ownership ceremony's NOT NULL step rebuilds the tables it tightens, and their composites come back plain, enforcing the same constraint. One index is re-keyed: the `sys_setting` row-identity index, which the metadata protocol rebuilds on every boot, keys the plain `organization_id` from the next boot on (probe-first; a pure relaxation, so it cannot fail on existing rows). The schema differ reads `COALESCE(<tenant>, …)` and the plain tenant column as one key part, in both directions, where the column is physically `NOT NULL` or the database is certified (its organization-ownership birth marker, or the ownership ceremony's marker at the current shape generation). So `os migrate plan` and the boot report no `recreate_index` for those indexes. On an uncertified database with a nullable tenant column the two forms stay different constraints: the finding is reported, and it names `os migrate organization-ownership` as its remedy.
+  - **What widens.** Where a tenant column is still nullable (every table of a database 18.0.0 created, an uncertified 17.x / 18.0 database, a rotation shard, a Turso remote table, a table the ceremony reported), a unique index created from now on does not constrain rows whose organization is NULL, exactly like a NULL in any other key part; in the in-memory driver a record with no organization is exempt from an organization-scoped unique. The unique duplicate pre-flight no longer reports groups of rows with a NULL key part, since the index never refuses them.
+  - **Who sees it.** A fresh install and every ceremonied table whose tenant column is NOT NULL see nothing. A database 18.0.0 created from empty is certified by its birth marker yet keeps nullable tenant columns: its existing indexes are kept unchanged, and a new organization unique declared on one of its tables constrains only rows that carry an organization.
+
+### Patch Changes
+
+- b42c621: fix(lint)!: `os lint` and the react-page props check report the retired list-view `filterableFields` by name, and the readers that still treated it as a field position go
+  
+  Clause-②: yes (narrowing)
+  
+  <!-- adr-0087: not-required (already-registered view-list-filterable-fields-removed, list-view-filterable-fields-retired) The key's retirement, its D2 conversion and its D3 entry are already registered by the change that tombstoned it, which shipped in 18.0.0. This change adds no key, conversion or stored shape: it makes `os lint` and the react-page props check give the verdict `os validate` and `os build` already give the list-view key, with the tombstone's own prescription. -->
+  
+  **BREAKING** (an authoring narrowing), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  `@objectstack/spec` 18 retired the list view's `filterableFields` with a `retiredKey()` tombstone, so `os validate` and `os build` refuse it at the parse. Two authoring checks still read it as a live field position:
+  
+  - **`os lint`** never parses: it judges the normalized stack, and the conversion that strips the key is retired from the load path. On a JSON, YAML or raw-object source the key reached the list-view field-reference rule as written. A valid field name passed `os lint`, and a stale one was reported as an unknown field (`list-view-field-unknown` / `list-view-field-dotted`), never as the retirement.
+  - **The react-page props check** read `<ListView filterableFields={[…]}>` as a field-bearing prop. A react page's source is parsed against no list-view schema, so `os validate`, `os build` and `os lint` passed the prop whenever its names resolved.
+  
+  Both now refuse the key by name, as an `error`, whatever it names:
+  
+  - a list view (every rung: an object's `listViews`, a `defineView` container's `list` / `listViews`, the flattened list overlay and the view item record) reports `list-view-key-retired` at `….filterableFields`, whether or not its object binding resolves;
+  - `<ListView filterableFields>` on a react page reports `react-prop-retired`.
+  
+  The message names the retirement and the hint is the tombstone's own "Delete the key" sentence, read from `ListViewSchema` rather than retyped. The new rule id is exported from the package root as `LIST_VIEW_KEY_RETIRED`.
+  
+  ### FROM → TO
+  
+  | before | after |
+  | --- | --- |
+  | `filterableFields: ['status']` on a list view in a non-`defineStack` source: `os lint` passed | `os lint` fails with `list-view-key-retired` |
+  | `filterableFields: ['ghost']` on such a list view: `list-view-field-unknown` | `list-view-key-retired` |
+  | `<ListView filterableFields={['status']} />` on a react page: passed every authoring command | `react-prop-retired` |
+  
+  **The one-line fix:** delete `filterableFields` (the key or the prop). For a curated end-user filter bar, declare `userFilters: { element: 'dropdown', fields: [{ field: 'status' }] }`; the Filter panel offers every field the user may read. `os migrate meta --from 17` lists the edits for existing metadata sources; a react page's source is yours to edit by hand.
+  
+  ### The residue readers that go
+  
+  - **`@objectstack/lint`**: the list-view field-reference rule no longer walks `filterableFields` as a filter position (its severity and dotted-path maps), the field-consumer rule no longer counts it as a behavioural read, and `os explain list-view-field-unknown` / `list-view-field-dotted` no longer name it as a checked position.
+  - **`@objectstack/metadata-protocol`**: `computeViewReferenceDiagnostics` no longer walks `filterableFields`, the same deletion its retired sibling `tabs` had. A stored body has the key stripped by the conversion replay before it is served, and the write door refuses it.
+  - **`@objectstack/metadata-core`**: the ADR-0106 field-security scrub no longer classifies `filterableFields` as a list-view name list. A body that still carries the key goes the unclassified way and fails closed: a list view whose `filterableFields` names a field the caller may not read is dropped whole, where the scrub used to remove the name.
+  
+  ⛔ **Untouched:** `userFilters` and `searchableFields` keep their meaning and their checks.
+- e282f32: fix(service-messaging,metadata-protocol)!: a notification preference's User is a `sys_user` reference, so the record title names the person and the write door refuses an id no user holds; the default for every user is an empty User instead of `'*'`
+  
+  Clause-②: yes (narrowing)
+  Metadata-protocol: none
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling or exported declaration is added, removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite. What changes is a platform object this package ships and owns, `sys_notification_preference`: its `user_id` column becomes a `sys_user` lookup, and what narrows is the write accept set of that object's rows, which are admin-authored data rather than metadata. No ADR-0087 conversion reaches a stored data row; the stored rows that spelled the retired `'*'` are rewritten by this package itself at boot, and the one-default-per-key index is a runtime migration in `@objectstack/metadata-protocol`. The other categories are closed on facts: both packages publish (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (a platform object's write accept set narrows, and one stored value is rewritten). It changes what a data writer can store in `sys_notification_preference`, not what a metadata author can write, so it ships as `patch` with this banner.
+  
+  - **FROM:** `sys_notification_preference.user_id` was a required text column holding a user id or the literal `'*'`, which meant "the default for every user". Any string was stored: a mistyped id matched nobody, silently. The record title (Setup → Notification Preferences) read the raw id, for example `ISu3jHPIrdgD45L1rrC2FuE7DIcsk2ap · urgent_task · inbox`. Two defaults for every user could be stored for one topic and channel in one organization, and which one applied was unspecified.
+  - **TO:** `user_id` is an optional `sys_user` lookup (ADR-0118 D1: no sentinel in a user column). An empty User is the default for every user, and a user's own row still overrides it.
+    - A write that names an id no user holds, `'*'` included, is refused: the REST data door answers `400` with `code: 'VALIDATION_FAILED'` and a finding on `user_id` with `code: 'reference_not_found'`.
+    - The title names the person: their name, or their email where the name is blank, then the topic and the channel. A row with an empty User reads `All users · TOPIC · CHANNEL`. A row whose User this reader cannot read, or that no longer exists, has no title rather than a misleading one.
+    - Deleting a user deletes that user's preference rows (`deleteBehavior: 'cascade'`). Under the lookup default (`set_null`) the person's own mute would have become the default for every user.
+    - At every boot (`kernel:ready`), the messaging service rewrites each stored `user_id = '*'` to an empty User, in every organization. A second run changes nothing. A `'*'` row whose topic and channel already have a default with an empty User is left as stored and reported once at `error`, naming the row; it is never deleted for you.
+    - On SQLite and PostgreSQL, `@objectstack/metadata-protocol` rebuilds the index `uniq_sys_notification_preference_a22d7d27` at `kernel:ready` as `(organization_id, COALESCE(user_id, ''), topic, channel)`, so a second default for one topic and channel in one organization is refused (`409`). If existing rows already break that rule, it refuses to migrate: the previous index stays, no row is touched, and the boot log and `os migrate duplicates` list the rows. MySQL/MariaDB and driver-memory keep the declared index, which does not constrain empty Users, and the boot log says so on MySQL.
+  - **Unchanged:** `topic = '*'` and `channel = '*'` are still the topic and channel wildcards. Most-specific-wins resolution, mandatory topics, quiet hours and digests behave as before. A row for a real user is read, matched and titled as before, except for the title text. The physical column is still a `varchar(255)`, so no DDL change is needed for it.
+  - **The fix for an operator:** nothing, normally; the boot rewrites the old `'*'` rows. If the boot log reports a `'*'` row that shares its topic and channel with a default whose User is already empty, delete the one that should not apply and restart. If it reports that the one-default-per-key index could not be built because two such defaults exist, list them with `os migrate duplicates`, delete one, and restart. A script or import that wrote `user_id: '*'` writes an empty `user_id` (omit it, or send `null`) for the default for every user.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [8cfe1f9]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [88cc145]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [2069b81]
+- Updated dependencies [0a3ce08]
+- Updated dependencies [c5915b2]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [c0ae356]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [31f0f27]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [459afea]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+  - @objectstack/core@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/lint@18.1.0
+  - @objectstack/metadata-core@18.1.0
+  - @objectstack/metadata@18.1.0
+  - @objectstack/formula@18.1.0
+  - @objectstack/types@18.1.0
+  - @objectstack/sdui-parser@18.1.0
+
 ## 18.0.0
 
 ### Major Changes

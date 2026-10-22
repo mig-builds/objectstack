@@ -1,5 +1,70 @@
 # @objectstack/plugin-mcp-server
 
+## 18.1.0
+
+### Patch Changes
+
+- 8010b64: fix(mcp)!: the stdio data bridge reads objects from the protocol's merged view, so `list_objects` and `describe_object` see every object `GET /api/v1/meta/object` lists, a package object declared `apiEnabled: false` is refused by every data verb, and so is every object of a disabled package (`404 OBJECT_PACKAGE_DISABLED`)
+  
+  Clause-②: no (narrowing)
+  Metadata-protocol: none
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is which definition the stdio MCP transport consults: its object discovery and its API-exposure gate now read the protocol's merged view, the definition REST and the `/mcp` HTTP bridge already serve and enforce, instead of the metadata service's copy. An object's own `enable.apiEnabled` / `enable.apiMethods` declaration is now enforced where it was not read; the remedy is the declaration the author already wrote, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (the stdio data verbs' accept set narrows to the object's own declaration), shipped as `patch`: it changes which requests the stdio transport serves, not what a metadata author can write.
+  
+  The long-lived stdio MCP server (`objectstack mcp`, `OS_MCP_STDIO_ENABLED`) answered `list_objects` and `describe_object` from the `metadata` service, and gated its data verbs and its record resource on the same service's copy of the object. That service holds a copy of an object only where something put one there. On a kernel with an `environmentId` (`os dev`, `os serve`, `os start`, and the cloud single-environment runtime) nothing copies the objects a package registers during the boot. So `list_objects` answered `{ objects: [], totalCount: 0 }` for such a package, `describe_object` answered "not found" for each of its objects, and the gate read the missing copy as "no declaration" and served them. REST and the `/mcp` HTTP bridge listed and refused the same objects.
+  
+  - **Before.** On that kernel, an object a package registered during the boot was missing from `list_objects` and answered `Object "NAME" not found` by `describe_object` and `validate_expression`. Declared `apiEnabled: false`, it was served by `query_records`, `get_record`, `aggregate_records` and the `objectstack://objects/NAME/records/ID` resource, and `create_record`, `update_record` and `delete_record` reached the store. Its `internal: true` fields were echoed in the `create_record` and `update_record` responses.
+  - **Now.** `list_objects` and `describe_object` answer from the listing `GET /api/v1/meta/object` serves. Every data verb and the record resource refuse such an object `404 OBJECT_API_DISABLED`, or `405 OBJECT_API_METHOD_NOT_ALLOWED` for a verb its `apiMethods` leaves out, as `RestServer` and the HTTP bridge do. Its `internal: true` fields are omitted from the write responses, and its nested-relation conditions are gated on their targets.
+  - **Also changed.** A disabled package's objects, where the `metadata` service still held a copy, were listed and described; they are now omitted, as REST omits them. Every data verb and the record resource now refuse a disabled package's object `404 OBJECT_PACKAGE_DISABLED`, whatever the object declares: before, the stdio transport served it on every verb, because each verb asks the engine and never the protocol. When the metadata store cannot be read, `list_objects` and `describe_object` answer the store's `503 SERVICE_UNAVAILABLE`, as `GET /api/v1/meta/object` does, instead of the `metadata` service's listing.
+  - **Unchanged.** Objects that already had a copy (every object on a kernel without an `environmentId`, a marketplace install on any kernel, and a runtime-authored object) are listed and gated as before. A host with no `protocol` service, or one without the merged reads, keeps reading the `metadata` service. If the protocol's by-name read fails, the gate judges the `metadata` service's copy, as it did before.
+  - **What to do.** Nothing, if the declarations say what you mean. A stdio client that relied on reaching an object declared `apiEnabled: false` was relying on the defect: set `enable.apiEnabled` (or `enable.apiMethods`) on the object to the exposure you want. A stdio client that read a disabled package's objects was relying on the same kind of defect: re-enable the package to restore access, as REST says.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [2069b81]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+  - @objectstack/core@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/formula@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

@@ -1,5 +1,124 @@
 # @objectstack/plugin-approvals
 
+## 18.1.0
+
+### Minor Changes
+
+- 7cacad5: **Shipped in 18.0.0**, whose CHANGELOG missed this entry; listed here one release late.
+  
+  feat(plugin-sharing,plugin-approvals,metadata-protocol)!: the organization-less readers of sharing rules, approval units and the seed loader retire (ADR-0131 D2/D8, 18.x step 7)
+  
+  Clause-②: yes (narrowing): a declared sharing rule served under `single` gains the `deploymentWide: true` key on the wire in place of `organization_id: null` (widening); the sharing-rule admin reads, the approval unit screen and the scoped seed pre-load stop reading rows with no organization (narrowing). A declared rule keeps applying deployment-wide; nothing an author declares is refused.
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No key of any metadata schema is removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite and no tombstone. The data migration a database with organization-less rows needs is the operator's ceremony, `os migrate organization-ownership`, stated below; the 18.x boot refusal already names it. The one wire change is a declared sharing rule's response row (`deploymentWide: true` in place of `organization_id: null`), not an authorable key. -->
+  
+  **BREAKING** — readers narrow. On a certified database (every 18.x database: a fresh install, or one the organization-ownership ceremony upgraded) none of these readers has a row left to find; they matter only to a database that still holds organization-less rows, which 18.x refuses at boot.
+  
+  - **A declared sharing rule is deployment-wide by a typed marker, never a NULL organization.** Under `single` it is served as one projection carrying `deploymentWide: true` and no `organization_id` key (was `organization_id: null`); its criteria sweep carries no tenant (the predicate ADR-0131 D8 computes under `single` is none) and each grant is stamped with its record's organization. Under `group` / `isolated` it is served once per organization, exactly as before. FROM `rule.organization_id === null` TO `rule.deploymentWide === true` for any client that told a declared rule apart by its NULL organization (`GET /api/v1/sharing/rules`, `GET /api/v1/sharing/rules/:idOrName`).
+  - **The contract names the marker.** `SharingRuleRow` (`@objectstack/spec/contracts`) declares `deploymentWide?: true`, documented: set only on a declared rule's `single` projection, which carries no `organization_id`.
+  - **A stored sharing rule with no organization sweeps nothing and grants nothing** where the deployment registers the organization object, reported once at `error` with the remedy (run the organization-ownership ceremony, or re-author the rule in its organization). A lean embedding with no organization object keeps sweeping the deployment: it has no organization to scope by.
+  - **Sharing-rule administration reads the caller's own organization only.** `listRules`, `getRule` (by id and by name), `evaluateRule` and `deleteRule` no longer reach an `organization_id = null` row for an organization-bound admin; system contexts and platform operators keep the unfiltered read. Deleting a "platform-global" rule no longer needs platform authority, because that rule class no longer exists: the guard is removed.
+  - **The approval unit screen is a strict equality.** A `department` approver resolves a `sys_business_unit` in the request's organization only (was: that organization or no organization). The ceremony attributes `sys_business_unit`, and a fresh install stamps it.
+  - **The scoped seed pre-load reads one thing: its organization's rows.** The second read that collected keys held by organization-less rows, and refused to twin or adopt them, is deleted; a scoped upsert/ignore/update issues no `organization_id IS NULL` read on any path.
+  
+  Remedy for a database that still holds organization-less rows: `os migrate organization-ownership --out PLAN`, review it, then `os migrate organization-ownership --apply --plan-file PLAN --backup-taken`.
+
+### Patch Changes
+
+- 9a06f0b: **Shipped in 18.0.0**, whose CHANGELOG missed this entry; listed here one release late.
+  
+  fix(plugin-approvals): a reminder's `notified` counts each approver address once, not once per slate slot
+  
+  Clause-②: no
+  
+  `POST /api/v1/approvals/requests/:id/remind` (`ApprovalService.remind()`) answers `notified` as the number of reminders it handed to messaging: one per distinct approver address on the pending slate. A `per_group` slate lists a person once per group they resolved into, and `pending_approvers` keeps every one of those slots until the first vote, so a person placed in two groups was counted twice while messaging delivered them one reminder. They are now reminded once and counted once, the rule the opening `approval.requested` notice already applies.
+  
+  A user id and the same account's email are still two addresses: the person holds two slots and receives two reminders, exactly as at the opening. Unchanged: who is reminded, each reminder's topic, payload, deep link and dedup key, the throttle, the submitter check, the `remind` audit row, and `position:*`-style literals, which still notify no one and add nothing to the count.
+- 28ff8a9: fix(plugin-approvals): every step of a multi-step approval names the person who submitted the run, not the previous step's approver
+  
+  Clause-②: no
+  
+  - **What was wrong.** This corrects the unreleased later-step submitter that PR #24527 introduced (an approval decision resumes its flow as the person who decided, `.changeset/24321-resume-as-decider.md`). Because the nodes after a decision now run as the decider, an approval step that opened after another step's decision recorded that decider as its `submitter_id`. On every later step the "I Submitted" list showed the request to the previous approver, recall and resubmit admitted the previous approver and refused the real submitter, and every notice meant for the submitter (`approval.returned`, `approval.request_info`, `approval.sla_breached`, `approval.approved`, `approval.rejected`) went to the previous approver.
+  - **Now.** Every step of a run records the user who triggered the run as its `submitter_id`, and as the actor of the step's `submit` timeline entry, whoever decided the steps before it. That holds on both `runAs` postures, after any number of decisions by different people, and on a step that a decision node reaches by routing around another. A run whose trigger resolved no user (a schedule, a write that carried no user) opens its later steps with no submitter, as it opens its first one.
+  - **Unchanged.** The decider still runs the nodes after their decision: their identity, permissions and attribution, as the resume-as-decider change ships them. The first step of every run, and every single-step approval, are unchanged. Compared with the last release nothing moves: later steps named the run's submitter there too, so recall and resubmit on a later step go back to the person they reached before.
+  - **`ApprovalService.openNodeRequest`.** A caller that passes `submitterId: null` now opens the request with no submitter. Before, `null` fell back to the calling context's user, the same as leaving `submitterId` out, which still falls back.
+- ba69b16: fix(plugin-approvals): the approvals inbox, the record's approval panel and the request page name the flow, the step and the record's object in the reader's language
+  
+  Clause-②: no
+  
+  - **What was wrong.** An approval request copies the flow's label and the Approval node's label when it opens (`process_label`, `current_step_label`), and the approvals door served that copy to every reader. A user whose locale is zh-CN, ja-JP or es-ES saw the authoring language, although the app's language pack carried `flows.<flow>.label` and `flows.<flow>.approvals.<node_id>.label` for those strings. The inbox row's `object_label` was the object's untranslated schema label.
+  - **Now.** `GET /api/v1/approvals/requests` (the inbox and the record's approval panel), `GET /api/v1/approvals/requests/:id` and the request a decision answers with serve `process_label`, `step_label` / `current_step_label` and `object_label` in the reader's locale (`Accept-Language`, else the `localization` settings). Each is read from the deployment's `i18n` service: `flows.<flow>.label`, `flows.<flow>.approvals.<node_id>.label` and `objects.<object>.label`. A bare `zh` reaches a `zh-CN` pack. The request get's step progress (`flow_steps`) names each step the same way.
+  - **Fallback.** A label the pack does not carry, a locale no pack holds, a read without a locale and a stack without an `i18n` service all get the label the request stored, exactly as before. An `en` reader of an app authored in English sees no change.
+  - **Unchanged.** The stored `process_label` and `current_step_label` columns keep the authored text they were written with: nothing is migrated or rewritten, and the generic data door, the list views and the one-tap action page still show the stored text. Who may read a request is unchanged. The `approval.requested` notification body is still English.
+  - **`ApprovalServiceOptions.i18nServiceSource`.** A new optional option: a lazy reader of the `i18n` service. `ApprovalsServicePlugin` wires it from the kernel's `i18n` service. A host that constructs `ApprovalService` by hand and leaves it out keeps the stored labels.
+- 58cd58f: fix(plugin-approvals): approval notifications reach each recipient in their own language
+  
+  Every approval notification now hands the messaging service its sentence as catalog keys beside the English literal (`EmitInput.keyedText`). The messaging service renders it at delivery in each recipient's `sys_user.locale`, else the deployment default. This plugin's translation bundle gains the sentences in en, zh-CN, ja-JP and es-ES, in its `messages` face (`messages.approvalRequestedTitle` and the rest).
+  
+  - **Which notifications.** `approval.requested`, `approval.reminder`, `approval.sla_breached` (to the approvers and to the submitter), `approval.approved` and `approval.rejected`, the two out-of-office notices (`approval.ooo_substituted`, `approval.ooo_skipped`), `approval.escalated`, `approval.reassigned` and `approval.returned` (the send-back and the auto-rejection). For `approval.comment`, `approval.request_info` and a send-back that carries the approver's note, only the headline is keyed. The body is that person's own words, delivered as written.
+  - **The record is named as before:** the object's label and the record id (`Deal D_123`), never a title. The label is rendered from the app's `objects.<object>.label` when its language pack holds one, else the schema label.
+  - **The English is unchanged.** The payload's `title` and `body` are the `en` catalog entries, byte for byte the sentences each notification carried before. A messaging service that does not render keyed text delivers them as it always did.
+  - **Unchanged.** Who is notified, each notification's topic, payload fields, deep link, dedup key and organization, and every channel's delivery behaviour apart from the text.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [7035682]
+- Updated dependencies [d606fc1]
+- Updated dependencies [a8b44d4]
+- Updated dependencies [78ab647]
+- Updated dependencies [73a2b52]
+- Updated dependencies [5872450]
+- Updated dependencies [9ea5afe]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [5d2c5a1]
+- Updated dependencies [066dabc]
+- Updated dependencies [4b8f597]
+- Updated dependencies [2069b81]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [ba244f1]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+- Updated dependencies [f7d7403]
+  - @objectstack/core@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/metadata-core@18.1.0
+  - @objectstack/platform-objects@18.1.0
+  - @objectstack/formula@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

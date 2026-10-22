@@ -1,5 +1,221 @@
 # @objectstack/platform-objects
 
+## 18.1.0
+
+### Minor Changes
+
+- a8b44d4: fix(platform-objects): a team record no longer lists Sessions with "Sign out other devices" (#24765)
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) One shipped object field gains `relatedList: false`, a key it was always free to set. No spec key, authorable spelling, export, type or stored shape is added, removed or renamed, and no stored row or column is read or rewritten, so `objectstack migrate meta` has nothing to rewrite. What narrows is one derived related list on a team's served detail page. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id covers this field (not already-registered); and the change is metadata on a shipped object, not an interface, a type or an export (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** for a reader of a team's derived related lists only: Setup → Teams → a team → Related no longer lists *Sessions*. Shipped as `minor` under the launch-window convention for accept-set narrowings.
+  
+  - **Before.** `sys_session.active_team_id` is a lookup to `sys_team` that did not set `relatedList: false`, so every team record derived a Sessions related list. That list carried the session list's only toolbar action, "Sign out other devices", whose confirmation reads "Sign out of every other device where you're currently logged in?". The action signs out the administrator's own other sessions, not the team's.
+  - **Now.** `active_team_id` sets `relatedList: false`, so a team record derives no Sessions list. A team's Members and Invitations lists are unchanged.
+  - **Unchanged.** The `active_team_id` field, its lookup to `sys_team`, its label and its column: better-auth still writes `activeTeamId` there. A user record's Sessions tab (keyed on `user_id`), where "Sign out other devices" belongs, and the action itself.
+  
+  **What to do.** Nothing. No team-scoped session action existed to lose.
+- 78ab647: fix(platform-objects): `SETUP_NAV_CONTRIBUTIONS` no longer carries the Setup → Branding entry; `@objectstack/service-settings` contributes it with the `branding` namespace
+  
+  Clause-②: no (the entry moves to the package that serves its page: a composition that serves Setup → Branding still lists it, and one that does not no longer lists a page it cannot open)
+  
+  The `nav_settings_branding` entry (Setup → Configuration → Branding) was a static item of `SETUP_NAV_CONTRIBUTIONS`, listed whatever the settings service offered. From this release `@objectstack/service-settings` does not offer the `branding` namespace under the `group` and `isolated` tenancy postures, so a static entry would open a page the server refuses with `404 UNKNOWN_NAMESPACE`.
+  
+  `SettingsServicePlugin` (`@objectstack/service-settings`, same release) now contributes the entry from the same `kernel:ready` step that offers the namespace, and only then. On a single-organization deployment Setup still lists Branding, now at the end of the Configuration group's platform entries. Its translated labels are unchanged and still keyed `apps.setup.navigation.nav_settings_branding`.
+- 4b8f597: fix(platform-objects)!: deleting a business unit that still has child units is refused, instead of silently turning each child into a root of the tenant
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) One shipped object field, `sys_business_unit.parent_business_unit_id`, gains `deleteBehavior: 'restrict'`, a key every lookup was always free to set, and its help text says what that means. No spec key, authorable spelling, export, type or stored shape is added, removed or renamed, and no stored row or column is read or rewritten, so `objectstack migrate meta` has nothing to rewrite. What narrows is the accept set of one delete: a business unit that still has child units is refused where it was accepted. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id covers this field (not already-registered or registered); and the change is metadata on a shipped object, not an interface, a type or an export (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (the delete of a business unit with children is refused), shipped as `minor` under the launch-window convention for accept-set narrowings.
+  
+  - **FROM:** `parent_business_unit_id` declared no `deleteBehavior`, so it took the lookup default `set_null`. Deleting a business unit that had child units answered `200`, and each child's `parent_business_unit_id` became `null`: a root of the tenant, without a word. A `unit_and_subordinates` sharing rule anchored above the deleted unit stopped reaching the former children.
+  - **TO:** the same delete answers `409 DELETE_RESTRICTED`, naming the blocking object (`dependentObject: 'sys_business_unit'`) and the number of child units (`dependentCount`), with the sentence "This Business Unit is still referenced by N Business Unit record(s) through “Parent Business Unit”. Delete or reassign them first." The unit and its children are left exactly as they were. The field's help text now says a unit with child units cannot be deleted until they are re-parented or deleted.
+  - **Unchanged:** a unit with no child units deletes as before. A bulk delete (`deleteMany`, `batch`) that lists the children before their parent (leaf to root) completes, atomic or not. Deleting an organization leaves its units and their tree in place, as before.
+  - **Fix:** before deleting a business unit, re-parent its child units (edit each child's Parent Business Unit) or delete them first. A bulk delete of a whole subtree lists the units leaf to root; listed root first, the root is refused.
+- ba244f1: fix(platform-objects)!: `sys_oauth_application.type` declares only `web` and `native`, the two application types its writer produces
+  
+  Clause-②: no (narrowing) — the stored column's declared options, which `GET /api/v1/meta/object/sys_oauth_application` serves and the record validator judges a write against, lose `useragentbased` and `public`, which no writer produces.
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. The one definition that changes is the option list of one field on `sys_oauth_application`, a platform object this package ships and owns, and what narrows is the set of values a write to that object's rows may send. Those rows are OAuth client registrations the OAuth provider writes, not metadata, and no ADR-0087 conversion reaches a stored data row. No writer sends either retired value, no stored row is rewritten, and a row holding any value reads and takes every write that leaves `type` out. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (a platform object's declared option set narrows), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  The column's only writer is the OAuth provider (`@better-auth/oauth-provider`), whose `application_type` plugin-auth maps onto `type`. The provider writes `web` or `native` on every creation and update path, or no type for a client-metadata-document client that names none. The generic data API cannot write the table. The column declared four options, and the string shorthand that declared them strips hyphens, so it served `web`, `native`, `useragentbased` and `public`. No writer produces the last two, and the `user-agent-based` an earlier provider line stored was never one of them.
+  
+  - **FROM:** the `type` field of `sys_oauth_application` declared and served the options `web`, `native`, `useragentbased` and `public`. A write that sent `useragentbased` or `public` was accepted and stored.
+  - **TO:** it declares and serves `web` and `native`. A write that sends any other value, including `useragentbased` and `public`, is refused with `VALIDATION_FAILED` (`400` at an HTTP boundary) and an `invalid_option` finding on `type`. No door sends one: the provider sends only `web`, `native` or no type, and the generic data API answers `405` for every write to this table.
+  - **Unchanged:** the column stays optional and defaults to `web`, and a `null` type is a blank value. No stored row is rewritten. A row holding any type, `user-agent-based` included, still reads and lists through the data API and the provider. It takes every write that leaves `type` out, such as a secret rotation or enabling and disabling the application. The provider's own update path still refuses a row whose type is not `web` or `native`, as it did before. The register-form entry in this release refers to this entry for the stored column's options.
+  - **The fix:** nothing to change for a client the provider registered. A row an earlier provider line stored as `user-agent-based` keeps that value. To edit it through the provider's update path, set `application_type` (`web` or `native`) in the same update.
+
+### Patch Changes
+
+- 7035682: fix(platform-objects): the password an administrator or user types into an action dialog is masked, no longer shown in clear text
+  
+  Clause-②: no (an input's presentation: the param still accepts the same string, and no accept set or served shape moves)
+  
+  Twelve credential params on the identity objects were declared `type: 'text'`, so the console's action dialog drew each as a plain text input and the typed password was readable on screen and in screenshots. Each now declares `type: 'password'`, which the dialog draws as a masked input:
+  
+  - `sys_user`: `create_user`'s `password` and `set_user_password`'s `newPassword` (Setup › Users), `change_my_password`'s `currentPassword` and `newPassword`, and the `password` of `delete_my_account`, `enable_two_factor`, `disable_two_factor` and `generate_backup_codes`.
+  - `sys_two_factor`: the `password` of `enable_two_factor`, `disable_two_factor` and `regenerate_backup_codes`.
+  - `sys_sso_provider`: `register_sso_provider`'s `clientSecret`.
+  
+  Labels, names, `required` and the posted body are unchanged: the value is still posted as the string typed, and no endpoint changes what it accepts.
+- d606fc1: fix(platform-objects): Setup no longer offers Ban with Unban, Revoke with Restore, or Unlock on every account, whatever the record's state
+  
+  Clause-②: no (an action's offering: `visible` is judged in the console, and no server door reads it, so no accept set or served shape moves; if the dev measures a door that does, the dev stops, and the seat re-declares)
+  
+  Five row and record-header actions judged only the caller's standing, so Setup offered both halves of each pair on every row. Each now also reads the record's state, in the form `sys_oauth_application`'s Disable / Enable pair already uses:
+  
+  - `sys_user` (Setup › Users): *Ban User* is offered when `banned` is not true, *Unban User* when it is. A timed ban past `ban_expires` still reads banned until better-auth clears it at the user's next sign-in, so Unban stays offered for as long as the row says banned.
+  - `sys_user`: *Unlock Account* is offered when `locked_until` is set, or when the user has two-factor enabled. Unlock also clears the second-factor lock, which lives on `sys_two_factor` and not on the user row, so a two-factor user keeps the button. An expired `locked_until` keeps it too: the failed-attempt counter stays at the threshold until Unlock or a successful sign-in resets it.
+  - `sys_api_key` (Setup › API Keys): *Revoke API Key* is offered on a live key, *Restore API Key* on a revoked one.
+  
+  The `sys_user` actions keep their platform-admin standing (`current_user.isPlatformAdmin == true`) first. A row that does not carry the field offers neither action of a pair. The console asks for every field an object action's predicate reads, so the default Users list carries `banned` without showing it.
+  
+  Unchanged: labels, texts, targets and params, and what the ban, unban, unlock and key routes accept and answer. Who may restore a key that a forced password reset revoked is still decided by the server.
+- 73a2b52: fix(platform-objects): the OAuth application register form offers only Web and Native, and its Redirect URLs help states the rule for each (#24773)
+  
+  Clause-②: no (a form's offering: nothing on the server reads the action's param options, so this change moves no accept set or served shape; the register route's refusal of the other types is its own breaking entry in this release)
+  
+  Setup › OAuth Applications › Register offered four application types: Web, Native, User-agent based and Public. The OAuth provider judges only `web` and `native`, and the register route refuses any other type with `400 INVALID_REQUEST`. The form now offers Web and Native, and still defaults to Web.
+  
+  - **Redirect URLs help.** It said "Must use https:// in production", which did not tell an admin that a local `http://localhost` callback needs the Native type. It now states the rule for each type: a Web application needs `https://` on a host other than localhost or another loopback address; a Native application may also use `http://` on exactly `localhost`, `127.0.0.1` or `[::1]`, on any port.
+  - **Application Type help.** New: choose Native for a desktop or mobile app, or for an app in local development that redirects to `http://localhost`.
+  - **Unchanged.** A row written under an earlier provider line keeps its stored type, and the `public` column is unchanged; the stored column's options narrow to Web and Native in this release's `sys_oauth_application.type` entry.
+  
+  The zh-CN, ja-JP and es-ES translations carry the new help texts.
+- 5872450: fix(plugin-auth)!: `POST /api/v1/auth/sys-oauth-application/register` refuses an application type the OAuth provider does not judge with `400 INVALID_REQUEST`, where it registered it as a `web` client
+  
+  Clause-②: no (narrowing) — the register door accepted any `type` value and registered every one other than `web` / `native` as a `web` client with a secret; it now refuses each of those values with 400, so it accepts exactly `web`, `native` and no type.
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer one runtime REST door gives a caller whose request body names an application type the OAuth provider has no counterpart for; the remedy is a different value in that request, never a rewrite of a package source or a stored row. The Console form that posts to this door already offers only Web and Native, and `sys_oauth_application` rows are not touched. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (a REST door's accept set narrows), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  The OAuth provider (`@better-auth/oauth-provider`) judges two application types, `web` and `native`, and this door forwards the type the Setup → OAuth Applications form chose as the provider's `application_type`. Any other value has no provider counterpart. The door used to register such a request as a confidential `web` client, with a client secret and the web redirect-URI rule, which is a different kind of client from the one the request asked for. It now refuses the request instead.
+  
+  - **FROM:** a request whose `type` is present and is neither `web` nor `native` (`user-agent-based`, `public`, any other string including the empty string, or a value that is not a string) answered `200` and stored a `web` client, or was refused by the web rule (`OAUTH_REGISTER_FAILED`) for a loopback redirect URI.
+  - **TO:** the same request answers `400` with `error.code: 'INVALID_REQUEST'`. The message names the value (its first 64 characters) and the two accepted types, and says to choose `native` for an `http://localhost`, `http://127.0.0.1` or `http://[::1]` redirect URI. The provider is not called, nothing is stored, and no warning is logged.
+  - **Accepted:** `web` and `native` are forwarded as the provider's `application_type` (this release's Application Type entry), and the provider's own redirect-URI rule decides.
+  - **Unchanged:** A request with no `type`, or with `type: null`, registers a `web` client, the provider's default. The other refusals keep their codes (their statuses are this release's refusal-status entry). Clients already registered are not touched.
+  - **`@objectstack/platform-objects`:** only the code comment on the `create_oauth_application` action changes, to state this refusal; it ships in the package's JavaScript. The form offers only Web and Native (this release's register-form entry).
+  - **The fix for an integrator:** send `type: 'web'` for a client whose redirect URIs are https on a host that is not a loopback address, or `type: 'native'` for a client that also redirects to `http://localhost`, `http://127.0.0.1` or `http://[::1]`. Omitting `type` registers `web`.
+- 9ea5afe: fix(platform-objects): Rotate Client Secret's result dialog states the immediate cut-off its confirmation states
+  
+  Clause-②: no (text only: no accept set, served shape or behaviour moves)
+  
+  - **Before.** On `sys_oauth_application`, the Rotate Client Secret confirmation said the previous secret "will stop working immediately". The result dialog then told the admin to "update every integration before the previous secret's grace period ends". Only the first is true.
+  - **What rotation does.** `POST /api/v1/auth/oauth2/client/rotate-secret` is better-auth's own route. It overwrites the client's one stored secret, and client authentication checks a presented secret against that value only. No previous secret is kept, so there is no grace period: the old secret is refused from the moment the rotation completes.
+  - **Now.** The result dialog reads "Save the new secret now — it is shown only once. The previous secret has already stopped working: update every integration with the new secret." The zh-CN, ja-JP and es-ES translations of that sentence are updated to match. The confirmation, the dialog's title, acknowledgement and secret field are unchanged.
+- 63085c3: feat(service-messaging,spec,cli)!: `sys_notification_subscription` retires — no reader ever expanded a subscription into recipients (ADR-0030 L3, amended)
+  
+  Clause-②: yes (narrowing)
+  
+  <!-- adr-0087: registered sys-notification-subscription-retired -->
+  
+  **BREAKING**, shipped as `minor` under the repo's launch-window convention for breaking changes. It goes into 18.x because its ADR-0087 semantic entry, `sys-notification-subscription-retired`, carries the narrowing.
+  
+  ADR-0030 described `sys_notification_subscription` as Layer-3 audience expansion: "who is subscribed to a topic". That expansion was never wired. Every producer names its recipients explicitly (`EmitInput.audience` is required: a flow notification node's recipients, an approval's approvers, a mention's users), no audience member asks for subscribers, and nothing reads the table's rows. So an administrator could author subscriptions in Setup that made nobody receive anything. The maintainer ruled to retire the object rather than build the expansion. The ruling supersedes the earlier decision to keep it with a code comment saying it was not wired, and ADR-0030 is amended to match.
+  
+  **What moves for consumers, FROM → TO.**
+  
+  - **The object.** FROM `import { NotificationSubscription } from '@objectstack/service-messaging'` TO nothing: delete the import. `MessagingServicePlugin` neither registers nor provisions the object any more, so the generic data door no longer serves it.
+  - **Setup navigation.** FROM a Notification Subscriptions item (`nav_notification_subscriptions`) in the Setup app's Configuration group TO no item. Notification Preferences and Notification Templates stay. The item's labels leave the platform app translations, and the object's keys leave service-messaging's generated object bundles.
+  - **The name.** `PLATFORM_OBJECTS_BY_PACKAGE['service-messaging']` (`@objectstack/spec/system`) lists six objects, and `isPlatformProvidedObjectName` answers `false` for `sys_notification_subscription`. A stack that names it (a lookup target, a flow trigger, a permission entry, a navigation item) is now flagged as naming an unknown object. Fix: remove the reference. To control who gets a notification, name the audience on the producer. To mute a topic for a user, write a `sys_notification_preference` row, which is unchanged.
+  - **`os migrate organization-ownership` (`@objectstack/cli`).** The inventory row for `sys_notification_subscription` moves FROM fate 3 (`attribution`: organization-less rows went to the Default Organization under `single`) TO fate 4 (`report`: rows listed by id, never attributed, never deleted). The table is exempt from NOT NULL, because no declaration anchors tenancy on its column any more. The row stays, so a database that still holds the table plans instead of being refused as carrying an uninventoried platform table. The plan's `inventoryDigest` changes: a plan file written by an earlier CLI no longer matches, and `--apply --plan-file` refuses it with `plan-digest-mismatch`. Re-run `os migrate organization-ownership --out PLAN`, review it, and apply that.
+  
+  **Existing databases.** The table is left in place untouched: no backfill, no reaper, no migrate command. Schema sync is additive and never drops a table, so a database an earlier release provisioned keeps `sys_notification_subscription` and any rows an administrator wrote, and nothing reads them. Export any row worth keeping. Dropping the table is the operator's call, by hand: `DROP TABLE sys_notification_subscription`.
+- 5d2c5a1: fix(platform-objects): the Create User result dialog no longer tells an admin who typed the password to copy a temporary one
+  
+  Clause-②: no (text only: the create-user result dialog's sentence and button; no param, response, status, outcome or export moves)
+  
+  `sys_user.create_user`'s result dialog said "Copy the temporary password now — it is shown only once and never stored." with an "I have saved this password" button, in both outcomes. The endpoint returns `temporaryPassword` only when it generated one, so after a typed password the dialog showed the email alone and asked the admin to save a password it never showed. The dialog now reads "If a temporary password was generated, copy it now — it is shown only once and never stored." with a "Done" button — the same sentence and button as `set_user_password`, true for a typed and for a generated password. The zh-CN, ja-JP and es-ES bundles carry the same change, reusing `set_user_password`'s existing translations.
+- 066dabc: fix(platform-objects): the user page's Security tab shows only on the viewer's own record
+  
+  Clause-②: no (platform metadata only: the Security tab's self-service sections are shown on the viewer's own record only; no action, param, response, spec key or export moves)
+  
+  The `sys_user` record page's Security tab holds only self-service controls: change password and email, two-factor authentication, email verification and account deletion. Every one of those actions is already gated to the viewer's own record. On another user's record the actions were withheld, but the tab still showed its four "your account" headings and captions with nothing under them, addressed to an administrator about an account that is not theirs.
+  
+  The tab item now carries the own-record gate `has(record.id) && record.id == ctx.user.id` as an item-level `visibleWhen` in the CEL envelope (the same guard the page's unverified-email alert carries). On your own record the tab is unchanged. On anyone else's record the tab header and its panel are both omitted. The actions, their own gates and the other tabs are unchanged.
+- 386f60f: fix(spec)!: the `Field.select` string shorthand keeps every character it does not document transforming, so an option such as `'no-overlay'` is refused instead of being declared as a different value
+  
+  Clause-②: no (narrowing: a `Field.select` shorthand string the helper used to rewrite silently, e.g. `'no-overlay'` → `nooverlay`, is refused instead)
+  
+  Metadata-protocol: narrowed
+  
+  <!-- adr-0087: registered field-select-shorthand-keeps-written-value -->
+  
+  **BREAKING** (a TypeScript author's shorthand that used to be rewritten is now refused), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  `Field.select(['a', 'b'])` and `Field.select({ options: ['a', 'b'] })` build each option as `{ label: s, value: … }`. The value used to be the string lower-cased, with whitespace turned into `_`, and then with every character outside `a-z`, `0-9` and `_` deleted. That last step was undocumented and silent: `'no-overlay'` became `nooverlay`, `'user-agent-based'` became `useragentbased`, `'v1.2'` became `v12`, and the field declared a value its author never wrote, so a record written with the value as written was refused with `invalid_option`.
+  
+  - **FROM:** a shorthand string is lower-cased, whitespace becomes `_`, and every other character outside `a-z0-9_` is deleted. `Field.select(['no-overlay'])` declares the option value `nooverlay`, and the object loads.
+  - **TO:** a shorthand string is lower-cased and whitespace becomes `_`, nothing else. `Field.select(['no-overlay'])` declares `no-overlay`, which is not a system identifier, so the object is refused by the rule an explicit `{ value: 'no-overlay' }` already met: `ObjectSchema.create` throws a `ZodError` at module load with `invalid_format` at `fields.FIELD.options.N.value` and the message `System identifier must be lowercase, starting with a letter, and may contain letters, numbers, underscores, or dots`, and the object save door answers `422 INVALID_METADATA` with the same finding. A dot is now kept (`'v1.2'` declares `v1.2`, which is a valid identifier).
+  - **Unchanged:** `Field.select(['In Progress', 'Closed Won'])` still declares `in_progress` and `closed_won`. An explicit option's value is still lower-cased. `SelectOptionSchema.value` accepts and refuses exactly what it did before.
+  - **The fix:** write such an option explicitly, with the value you will store: `Field.select({ options: [{ label: 'no-overlay', value: 'no_overlay' }] })`. If rows already hold the hyphenated spelling, the column is not a select: declare it as `Field.text({ maxLength: 255 })`.
+  
+  `@objectstack/metadata-core`: `sys_metadata_audit.lock_state` was the one in-tree column relying on the strip. It declared the options `none`, `nooverlay`, `nodelete` and `full`, while its writer stores the `MetadataLock` spelling (`none`, `no-overlay`, `no-delete`, `full`), so no `no-overlay` or `no-delete` row ever matched a declared option. It is now `Field.text({ maxLength: 255 })`, read-only as before. `GET /api/v1/meta/object/sys_metadata_audit` serves `lock_state` as `type: 'text'` with `maxLength: 255` and no `options`. No stored row is rewritten, the writer and reader are unchanged, and an existing `varchar(255)` column reports no schema drift on postgres, mysql or sqlite.
+  
+  `@objectstack/platform-objects`: the translation bundles drop the four `sys_metadata_audit.lock_state` option labels (`none`, `nooverlay`, `nodelete`, `full`), which the column no longer declares. The field label stays translated.
+- dfab597: feat(spec): `ISharingRuleService` declares the optional `declaredRuleNamed` reader that the catalog activation door uses for declared sharing rules
+  
+  Clause-②: yes (widening)
+  Metadata-protocol: none
+  
+  - **The contract member.** `ISharingRuleService` (`@objectstack/spec/contracts`) gains an optional `declaredRuleNamed?(name)` member. It returns `Promise<{ name: string; packageId?: string } | null>`: the rule the application declares under that name, or `null` when nothing servable is declared under it. The answer covers every organization, and it does not depend on whether the activation ledger has the rule switched off. `POST /api/v1/security/_activation/sharing_rule/:name` reads it to confirm the name it is asked to switch. Before this change the door read the method by duck type, and the contract did not mention it.
+  - **Optional, so no implementer breaks.** An implementation that serves no declared rules can leave it out. A caller probes for it and refuses fail-closed when it is absent. The activation door still answers `503 SERVICE_UNAVAILABLE` in that case, so the door's behaviour does not change. `@objectstack/plugin-sharing`'s `SharingRuleService` already implements it with a compatible signature.
+  - **The ledger's field description.** On `sys_metadata_activation`, the `metadata_type` description now lists every type the ledger holds: `flow`, `action`, `position`, `permission`, `sharing_rule` and `webhook`. It used to stop at `flow`, `permission`, ….
+- f7d7403: fix(platform-objects): Setup → People & Organization no longer shows two identical "组织" / "組織" entries
+  
+  Clause-②: no
+  Metadata-protocol: none
+  
+  `nav_organization` (the active organization's record page) and `nav_organizations` (the organization list, shown where `org-scoping` is mounted) both translated to "组织" in zh-CN and "組織" in ja-JP, so a multi-organization deployment showed two identical menu entries that open different pages. They now read "当前组织" / "所有组织" (zh-CN) and "現在の組織" / "すべての組織" (ja-JP). A new test fails when any two entries in one Setup nav group read the same in any shipped locale.
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [2069b81]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+  - @objectstack/spec@18.1.0
+  - @objectstack/metadata-core@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

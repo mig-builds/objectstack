@@ -1,5 +1,327 @@
 # @objectstack/plugin-security
 
+## 18.1.0
+
+### Minor Changes
+
+- 94842ba: feat(core,plugin-security)!: a grant applies only in its own organization — an organization-less grant row confers nothing, and the Default Organization's `admin_full_access` grant is the only platform-admin anchor
+  
+  Clause-②: yes (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No key of any metadata schema is removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite and no tombstone. The data change this relies on is the operator's ownership ceremony, `os migrate organization-ownership`, which an upgraded database must have passed before it boots. -->
+  
+  **BREAKING** for a stored grant row that carries no `organization_id` (`NULL`, absent or blank), shipped as `minor` under the repo's launch-window convention for breaking changes (ADR-0131 D10). After the ownership ceremony no such row exists: it attributes every one to an organization and makes the column NOT NULL, a server refuses a database it did not create or certify, and a fresh install that registers the organization object never writes one. So on a certified or fresh database nothing resolves differently.
+  
+  - **`resolveUserAuthzGrants` / `resolveAuthzContext` (`@objectstack/core`).** A `sys_user_position` or `sys_user_permission_set` row applies only while its organization is the active one. FROM: a row with no organization was "global" and applied in every resolution, including one with no active organization. TO: it applies nowhere, and a resolution with no active organization gets no stored grant at all.
+  - **Platform-admin standing.** FROM: under `single`, an organization-less `admin_full_access` grant anchored `platform_admin`, beside the Default Organization's. TO: only the Default Organization's grant anchors it (still in every organization, and with none active). Walled postures are unchanged: standing there comes from `OS_PLATFORM_OWNER_EMAIL` alone.
+  - **`bootstrapPlatformAdmin` (`@objectstack/plugin-security`).** The existing-admin check reads only the Default Organization's grant. When no Default Organization can be named (a walled posture, or none to name), it reads no grant at all. The walled "no owner email declared" error drops its sentence about a legacy unscoped grant row.
+  - **The delegated-administration gate.** A held position counts toward self-delegation only when its row belongs to the caller's active organization. An organization-less holding, or a caller with no active organization, holds nothing there, which is what the resolver grants. An organization administrator's removal of an organization-less row is refused as "not one of the organization you administer".
+  - **The run-lifecycle refusal (`@objectstack/runtime`).** Under `single` it now names the Default Organization's `admin_full_access` grant as the remedy, where it named an unscoped one.
+  - **What a lean composition sees.** A composition that registers no organization object (`sys_organization`, which plugin-auth ships) still stores grants without an organization, and those grants now confer nothing. No shipped composition does this: `os serve` registers the security plugin only together with plugin-auth.
+  
+  **What an operator does.** Nothing beyond the upgrade itself: run `os migrate organization-ownership` before serving a database that 17.x or an 18.0 pre-release created. The server refuses such a database until you do. If an embedding composes `@objectstack/plugin-security` without plugin-auth, register the organization object so that grants carry an organization.
+- f8c5fb3: feat(objectql, plugin-security): the engine composes its `ReadableIds` leaf for a delegated (on-behalf-of) caller, scoped to the delegator intersection, instead of refusing it (ADR-0139 D5.1 as amended; O5 answered)
+  
+  Clause-②: no
+  
+  **Before.** A read carrying an on-behalf-of link whose final `where` held a `ReadableIds` leaf was refused `INTERNAL_ERROR` / 500 before any driver was asked (ADR-0139 D5.1 as accepted), and `getReadFilter` answered the deny sentinel for every delegated context, so the leaf's consumers routed such a caller to their bounded, fail-closed probe.
+  
+  **Now.**
+  
+  - `@objectstack/objectql`: the executor boundary composes the leaf for a delegated caller exactly as for any other. It asks `canReadObject` and `getReadFilter` with the delegated context as it stands (`onBehalfOf` intact) and composes what the security service answers; it derives no intersection of its own. The two remaining D5 classes, a parent an object-scoped read middleware narrows and a parent bound to another datasource, are still refused by name with the same envelope.
+  - `@objectstack/plugin-security`: `getReadFilter` answers a delegated context the ADR-0090 D10 intersection, the six layers the engine middleware ANDs into a delegated `find` of the same object: the principal's row-level security and `controlled_by_parent` derivation, the delegator's two over the delegator's own rebuilt context, and the sharing visibility filter under each identity at its own depth. A delegated read through the leaf serves exactly the rows a delegated direct read of the parent serves. It fails closed as the chain does: a delegator who does not exist, a delegator the object does not admit, a principal or a delegator that resolves no permission set, and any resolution failure answer the deny sentinel, and the leaf is `$in: []`.
+  
+  **What a reader sees.** No shipped consumer writes a leaf for a delegated caller yet (each still routes it to its probe; that routing retires per consumer on its own card), so a delegated read of `sys_activity`, `sys_audit_log`, `sys_comment`, `sys_comment_reaction` or `sys_attachment` is served as before. A door that binds `getReadFilter` directly, such as the analytics raw-SQL path, scopes a delegated context to the intersection now; as accepted it denied that context outright.
+  
+  **Unchanged.** `controlled_by_parent`'s own read scope (ADR-0055 §2 mechanism (b), the pre-resolved id set) and the nested master chain, which keep their own cards; the delegated `find`, `findOne`, `count` and `aggregate` through the engine middleware, which already applied the intersection.
+- b289090: fix(plugin-security)!: an update or delete of a `controlled_by_parent` detail asks for edit access to its master on every write shape (ADR-0055 §3)
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition, stored row or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer the security plugin's master-detail write gate gives for one shape of write to a `controlled_by_parent` detail: it now asks the master-edit question a by-id update or delete already asks, and refuses where that question refuses. The remedy is a grant on the master or a narrower write, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  ADR-0055 §3 says editing or deleting a detail requires edit access to its master, and it names no write shape as exempt. The master-detail write gate decided one shape of write to a `controlled_by_parent` detail without asking that question. It now asks it: the gate collects the masters of the detail rows the write would reach, as the caller's own read returns them, and runs on each master the check a by-id write runs. One master the caller may not edit refuses the whole write, and nothing is written. On a write made on a user's behalf, both principals are asked, as on a by-id write.
+  
+  **BREAKING** for a caller that relied on that shape to write details under a master it may not edit. Shipped as `minor` under the launch-window convention for accept-set narrowings.
+  
+  - **Before.** That shape of write changed or removed details under a master the caller may not edit, bounded only by what the caller could read and, for an organization member, by the platform ownership floor.
+  - **Now.** It answers the refusal a by-id write of the same detail answers: `PERMISSION_DENIED` (403), naming the detail and the master-edit reason. A write whose rows all sit under masters the caller may edit lands as before and writes the same rows. A row the caller cannot read is not judged and is not written.
+  - **Also refused.** A caller whose read of the detail is itself refused gets that read's refusal for this shape of write, because the masters of rows it cannot read cannot be established. A write reaching more than 10,000 readable rows answers `INVALID_FILTER` (400), the refusal the same count already answers.
+  - **Unchanged.** Inserts and by-id updates and deletes; system contexts; the detail's read scope; the platform ownership floor; and every object that does not declare `controlled_by_parent`.
+  
+  **What to do.** Grant the caller edit access on the master, or narrow the write to details under masters the caller may edit.
+- f46ef4d: fix(plugin-security)!: an update of a `controlled_by_parent` detail also asks for edit access on the master its body names (ADR-0055 §3)
+  
+  ADR-0055 §3 says editing, deleting or creating a detail requires edit access to its master, and it reads a create's master from the master id in the incoming body. A write to a `controlled_by_parent` detail can involve more than one master, and for one shape of write the master-detail write gate asked the master-edit question of one of them only. It now asks it of every master the write involves, with the same check and in the same order as before for the one it already asked. One master the caller may not edit refuses the whole write, and nothing is written. On a write made on a user's behalf, both principals are asked, as on every other detail write.
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition, stored row or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer the security plugin's master-detail write gate gives for one shape of write to a `controlled_by_parent` detail: it now asks the master-edit question of every master that write involves, and refuses where that question refuses for any of them. The remedy is a grant on the master or a narrower write, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** for a caller that relied on that shape of write landing while one of the masters it involves is a master the caller may not edit. Shipped as `minor` under the launch-window convention for accept-set narrowings.
+  
+  - **Before.** That shape of write was decided on one of the masters it involves, and landed when the caller could edit that one, whatever the other.
+  - **Now.** It answers the refusal a write under the other master answers: `PERMISSION_DENIED` (403), naming the detail and the master-edit reason. A write whose masters the caller may all edit lands as before and writes the same rows. A write that reaches no row involves no master and is not refused.
+  - **Unchanged.** Inserts and deletes; every write that involves only the master its rows already sit under; system contexts; the detail's read scope; the platform ownership floor; and every object that does not declare `controlled_by_parent`.
+  
+  **What to do.** Grant the caller edit access on every master the write involves, or keep the write within masters the caller may edit.
+- 3782b2d: fix(plugin-security)!: a batch create of a `controlled_by_parent` detail asks for edit access on the master of every row it names, and an update no longer empties a detail's master reference (ADR-0055 §1, §3)
+  
+  ADR-0055 §3 says creating, editing or deleting a detail requires edit access to its master, and it reads a create's master from the master id in the incoming body. A batch create carries one body per row. The master-detail write gate read a create's master only from a body that is a single record, so a batch create asked about no master at all. That covers the engine's array insert and `insertMany`, and the bulk-create and import doors that call them. The gate now asks about the master of every row the batch names, with the same check a single create runs, once per master and in row order. One master the caller may not edit refuses the whole batch, and nothing is written. On a write made on a user's behalf, both principals are asked, as on every other detail write.
+  
+  ADR-0055 §1 derives a detail's access from exactly one required master. For a master reference that required-field validation does not judge, an update whose body set the reference to null landed. It stored a detail that no principal's read can match. The gate now refuses it as it already refuses a create that names no master.
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition, stored row or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer the security plugin's master-detail write gate gives for two shapes of write to a `controlled_by_parent` detail: a batch create now asks the master-edit question of the master each of its rows names, and refuses where that question refuses for any of them; and an update that empties a master reference required-field validation does not judge is refused. The remedy is a grant on the master, a batch kept within masters the caller may edit, or a master reference kept populated, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** for a caller that relied on either write landing. Shipped as `minor` under the launch-window convention for accept-set narrowings.
+  
+  - **Before.**
+    - A batch create of a detail landed whatever masters its rows named, including masters the caller may not edit.
+    - An update that set a master reference, of a kind required-field validation does not judge, to null landed and stored the null.
+  - **Now.**
+    - That batch create answers the refusal a single create of the offending row answers: `PERMISSION_DENIED` (403), naming the detail and the master-edit reason. The partial-success `insertMany` refuses the whole call rather than reporting that row.
+    - A batch whose rows' masters the caller may all edit lands as before and writes the same rows.
+    - That update answers `MISSING_REQUIRED_FIELD` (422) and writes nothing. Where required-field validation does judge the reference, it still answers the update, as before.
+  - **Unchanged.**
+    - Single creates, and every update and delete that does not empty the master reference.
+    - A row naming no master, which the same rules as before answer.
+    - System contexts, the detail's read scope and the platform ownership floor.
+    - Every object that does not declare `controlled_by_parent`.
+    - The import door degrades a refused batch to one create per row. There, the rows under masters the caller may edit still land, and the other row is refused on its own.
+  
+  **What to do.** Grant the caller edit access on every master a batch names, or keep each batch within masters the caller may edit. To move a detail to another master, write that master's id, never null.
+- 2e242bb: fix(plugin-security)!: a delegated operation runs only in an organization the delegator is a member of, on a walled posture
+  
+  ADR-0090 D10 bounds an on-behalf-of operation by the delegator's scope. The operation runs in the live principal's active organization, and the delegator context is resolved in that same organization, on the stated assumption that the agent and its delegator are in the same organization. Nothing checked that assumption. The delegated-principal prologue (`resolveOperationPrincipals`) now checks it with `vetOrganizationClaim`, the one rule for "a membership backs this organization": under `isolated` or `group`, when the on-behalf-of context carries an active organization the delegator is not a member of, every operation is refused before any gate runs.
+  
+  Clause-②: no (narrowing) — on a walled posture, an operation of an on-behalf-of context whose active organization the delegator's membership does not back is refused `403 PERMISSION_DENIED`, where it used to run.
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer the security middleware gives an in-process caller that builds an on-behalf-of execution context in an organization the delegator does not belong to; the remedy is to build that context in an organization the delegator is a member of, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (the security middleware's accept set narrows), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  - **FROM:** under `isolated` or `group`, an operation (read, insert, update or delete) of an execution context carrying `onBehalfOf` and an active organization the delegator is not a member of ran, answered by the gates the middleware composed for the two principals.
+  - **TO:** the same operation is refused `403` with `code: 'PERMISSION_DENIED'` before any gate runs. The message names the organization and the delegator.
+  - **Unchanged:** the `single` posture, an on-behalf-of context with no active organization (it keeps the ADR-0123 D2 answers), a context without `onBehalfOf`, a dangling delegator (still refused as before), and system contexts. The `/mcp` OAuth door, the one producer of an on-behalf-of context in the platform, vets the request's organization against the same membership, so the contexts it builds are never refused by this rule.
+  - **The fix for an in-process producer:** code that builds an `ExecutionContext` with `onBehalfOf` by hand (a plugin, a service, an agent runtime) must set its `tenantId` to an organization the delegating user is a member of, or leave it unset.
+
+### Patch Changes
+
+- 0091d84: fix: no shipped text says the SQL driver reads organization-less rows, and the in-memory HTTP outbox no longer does
+  
+  Clause-②: no (one fix and texts: the in-memory HTTP outbox's `redeliver()` now answers as `SqlHttpOutbox` already did; no accept set, served body or error code of a shipped composition moves)
+  
+  ADR-0131 D8 retired the driver's `OR organization_id IS NULL` arm. Several shipped texts still described it as the live tenant predicate. They now state the current rule: the tenant term is `organization_id = :tenant`, or `IN (:tenants)` under the `group` posture, and nothing else. No tenant-scoped read reaches an organization-less row on a tenant table.
+  
+  - **`@objectstack/service-messaging` — fix.** `MemoryHttpOutbox.redeliver()` no longer lets a tenant-scoped caller replay a row with no organization. It answers `RESOURCE_NOT_FOUND`, as `SqlHttpOutbox` does through the driver's tenant scope (ADR-0131 D8: no layer has a NULL arm). A caller with no tenant is still unscoped. No shipped composition constructs the in-memory outbox; the messaging plugin always builds `SqlHttpOutbox`. Code that embeds `MemoryHttpOutbox` directly sees the change.
+  - **`@objectstack/service-automation`.** The `[http]` node's warning for a durable callout with no organization no longer says the `sys_http_delivery` row is "a global row every organization's redeliver door can reach". It now says no organization's redeliver door reaches that row.
+  - **`@objectstack/objectql`.** The `sys_record_share` entry of the platform-object tenancy inventory carries an updated `evidence` text.
+  - **`@objectstack/lint`.** `os explain unique/legacy-organization-composite` now says that a new row carries its organization wherever the organization object is registered. A composition that registers no organization object still writes rows whose organization column is NULL.
+  - **`@objectstack/spec`.** The TSDoc of `SharingRuleRow` no longer calls it a 1-to-1 stored shape: `deploymentWide` has no `sys_sharing_rule` column. The TSDoc of `DriverOptions.tenantIds` and of the events `organizationId` member describe the predicate without a NULL arm.
+  - **The other packages.** Code comments only.
+- f90ea67: fix(plugin-security): the `position_name_fold_grant` warning says the same-name grant is removed in the next major version, and what holders lose then
+  
+  Clause-②: no (a runtime warning's wording plus one added field in its log payload; no accept set, served shape, resolution result or error code moves)
+  
+  - **What it was.** A position resolves the permission set that has its own name even when the position's definition does not list that set in `permissionSets`. `plugin-security` has warned about this since 17.3 (`position_name_fold_grant`), once per position. The warning said the grant was "in force and ungoverned" and asked for `permissionSets: ['P']` or a rename. It did not say that this name-based grant is being retired, or what happens to holders when it is.
+  - **What changed.** The warning now says three things. The set is in force for holders of position `P` only because the two share a name. This name-based grant is deprecated and is removed in the next major version: from then on, holders of `P` do not receive set `P` unless `P`'s definition names it. To keep the grant, declare `permissionSets: ['P']` on position `P`; if the shared name is a coincidence, rename one of the two. The structured payload adds `removedIn: 'next_major'`. `event`, `position` and `permissionSet` are unchanged.
+  - **Why only a warning in 18.x.** No ADR-0087 conversion can carry this retirement: the platform cannot write `permissionSets` into a sealed managed position definition (ADR-0131 D6). So 18.x ships the warning, and the removal of the name-based grant waits for 19.0.
+  - **Unchanged.** Every resolution result. A holder of `P` still receives set `P` in 18.x. The warning still fires under the same conditions, including for a position bound to a different set that also shares its name with one. It stays silent for a declared pair, a baseline set and a position whose name matches no set, and it still fires once per position name until the next restart.
+  - **What to do.** For each position named in a `position_name_fold_grant` warning, add the same-named set to that position's `permissionSets` before upgrading to the next major version. Setup's Permission Sets field and the set's Assigned Users panel then show the binding as well.
+- 6440cf1: fix(plugin-security): a permission-set assignment is titled by the person's name, not the raw user id
+  
+  Clause-②: no (no accept set moves: the value a declared formula computes on read changes; no key, column, write path or authorization answer moves)
+  
+  - **Before.** `sys_user_permission_set`'s record title (`display_title`, the object's `nameField`) composed the stored user id, so Setup's list of a user's permission sets and the assignment's record page read like `ISu3jHPIrdgD45L1rrC2FuE7DIcsk2ap → crm_edit`.
+  - **Now.** The title names the person: the user's `name`, or their `email` where the name is blank, then the set, as in `Alice Liddell → crm_edit`. The name is read one hop through `user_id`, under the reader's own permissions (the ADR-0079 addendum on one-hop formula titles). A reader who may not read that user, and a grant whose user no longer exists, get no title (`null`), never the user's name or email; a renderer then falls to the object's `titleFormat`, `{user_id} → {permission_set}`. No column is stored, and the title is still neither sortable nor searchable.
+  - **Cost.** A read of `sys_user_permission_set` that computes its formulas (no field projection, or a projection naming `display_title`) now issues one batched `sys_user` read per page. The grant read every authenticated request makes is not one of them: it names the columns it decides on, so it computes no title, and the request's authorization prelude stays 8 reads in 4 round trips for a principal holding a direct grant.
+- 98c3d00: fix(plugin-security): a platform operator's tenant-scoped insert from a session with no active organization is refused 403 naming the missing organization, as a member's is, instead of a 500
+  
+  Clause-②: no (no accept set moves: the insert was refused before and is refused now, with the ADR-0123 D2 answer in place of an internal error)
+  
+  - **Before.** Under `group` or `isolated`, a platform operator (`admin_full_access`) whose session had no active organization got `500 ERR_SYSTEM_WRITE_ORGANIZATION_REQUIRED` for a create on a tenant object whose posture lets it cross the organization wall (`access.default: 'private'`). The operator crosses the wall there, so the wall let the insert through, and the engine then refused the row as a system write with no organization.
+  - **After.** That create gets `403 PERMISSION_DENIED` with the message a member gets in the same state. The message names the missing active organization and tells the user to join or select one.
+  - **Unchanged.** Nothing was written before and nothing is written now. The refusal judges the row as it is about to be stored, the same row the engine's own organization check reads, so it covers exactly the inserts that answered 500 and no insert that was admitted. These are as before:
+    - a row a `beforeInsert` hook places in an organization;
+    - the operator's reads and updates across organizations;
+    - inserts from an operator with an active organization;
+    - inserts into objects that opted out of tenancy;
+    - system contexts (which still meet the engine's own refusal);
+    - every `single` answer.
+- 5050442: fix(objectql,plugin-security): an update's re-point of `organization_id` that the Layer 0 wall admits is stored as sent, not silently dropped
+  
+  Clause-②: yes (widening) — an update re-point of `organization_id` the Layer 0 wall admits is now stored instead of silently dropped, and an in-process `strictReadonlyWrites: true` update naming an organization the wall admits is now stored instead of refused `ERR_READONLY_FIELD_REJECTED`.
+  
+  **What was wrong.** Under the `group` posture, a member whose active organization is A can name C, another organization it belongs to, in an update's `organization_id`. The Layer 0 write wall admitted C, on the payload and on the row about to be stored. Then the engine's static-`readonly` update strip took it, because the platform's injected tenant column is `readonly: true`, and the row stayed in A. The update answered 2xx, by id and by predicate alike, and the only signals were a `droppedFields` entry and a WARN. An object that declares its own writable `organization_id` stored the same re-point, so the app objects on the injected column were the inconsistent half. This is the update half of the insert fix shipped beside it.
+  
+  **What changed.**
+  
+  - **`@objectstack/objectql`.**
+    - `ObjectQL.update` reads `PostHookWriteImageCheck.judgesOrganization` (reached as `OperationContext.postHookWriteImageCheck`) once per update, for a non-system caller, and hands that one value to every static-`readonly` pass: the pre-hook hide pass, the by-id strip, the predicate strip, and the stored view the `readonlyWhen` strips and the master-detail settlement read.
+    - Where it is set, and the object's `organization_id` is the platform's injected column on an object the insert strip also judges, those passes leave the caller's re-point on the row. The wall then stores it as sent where it admits it and refuses it where it does not.
+    - The decision is one helper, shared with `ObjectQL.insert`, so the two write verbs spare exactly the same objects.
+    - The member's published doc now covers updates. No member is added.
+  - **`@objectstack/plugin-security`.**
+    - Step 3.7 sets `judgesOrganization` on the stored-image seam it composes for a single-payload update, only where it composes the wall's own parts in, as it already did for an insert.
+    - It does not set the member on a business-`check`-only seam, on a crossing platform operator's update (which gets no wall seam), or on an update whose payload is an array (step 3.7 composes no seam for one).
+    - The wall's admit/refuse set is unchanged: a re-point outside the caller's scope is still refused `403 PERMISSION_DENIED`, and so is an emptied one (`null` or `''`).
+  
+  **What a caller sees.** Every change below is a widening. None of them admits a `(caller, organization)` pair the wall does not already admit, and the engine's own gates (the wall, the strip and the strict flag) refuse nothing they accepted before.
+  
+  - **The re-point is stored as sent.** Under `group`, an update naming another organization of the caller's membership set moves the row there, by id and by predicate. Under `isolated`, an update naming the active organization is stored as before.
+  - **No longer reported.** Such a re-point is no longer reported as dropped: not in `droppedFields`, not through the `onFieldsDropped` listener, and not by the read-only WARN.
+  - **`strictReadonlyWrites` stores it.** An in-process `engine.update(..., { strictReadonlyWrites: true })` naming such an organization is now stored, where it used to be refused `ERR_READONLY_FIELD_REJECTED`: strict refuses exactly what the strip takes. No REST door can set that flag.
+  - **`beforeUpdate` hooks see it.** On a walled update, `beforeUpdate` hooks now see the caller's `organization_id`, because the value will be stored. Before, it was withheld from them.
+  - **A member with no active organization.** Under `group`, such a member re-points within its membership set the same way, and outside it is refused.
+  - **An on-behalf-of update (ADR-0090 D10).** Take a platform operator who crosses the wall and acts for a walled delegator. The re-point is held to the delegator's wall: stored as sent where that wall admits it, refused `403` where it does not. Before, an admitted re-point was taken and the row kept its organization.
+  - **Outcomes that read the stored organization now follow the admitted value.** An organization-scoped unique key, a validation rule, a `readonlyWhen` / `requiredWhen` predicate, and a hook that reads `organization_id` now see the organization the row is moved to, not the one it used to keep. So a re-point that collides with an organization-scoped unique key in its new organization is refused there, as it already was on an object that declares its own `organization_id`; before, the re-point was dropped and the write reported success.
+  - **Only the platform's injected column on an app object is spared.** A `sys_` object, a platform-internal `managedBy` bucket (`engine-owned`, `append-only`, `better-auth`), and an object whose author declares its own `organization_id` with `readonly: true` keep the update strip: the value is still taken, reported, and refused under strict, exactly as before. The organization-scoped grant tables (`sys_user_position`, `sys_user_permission_set`) declare a writable `organization_id` the strip never took, so their re-points keep meeting their own guards exactly as before.
+  - **Where no wall judges the column, nothing changes.** The re-point is still taken and reported, and strict still refuses it. That includes `single`, a composition without the security plugin, a tenancy-disabled object, a platform operator crossing the wall on its own behalf, and `preserveAudit`, whose update-only exemption never reaches `organization_id`.
+  - **The `update`-mode `validate()` preview is unchanged.** It runs no middleware, so it holds no seam: it still reports an admitted re-point as dropped while the write stores it.
+- 2b1382a: fix(objectql,plugin-security): an insert's explicit `organization_id` that the Layer 0 wall judges is stored as sent, not replaced by the active organization
+  
+  Clause-②: yes (widening) — `PostHookWriteImageCheck` gains the optional published member `judgesOrganization`, and an in-process `strictReadonlyWrites: true` insert naming an organization the wall admits is now stored instead of refused `ERR_READONLY_FIELD_REJECTED`.
+  
+  **What was wrong.** Under the `group` posture, a member whose active organization is A can name C, another organization it belongs to, in an insert's `organization_id`. The Layer 0 write wall admitted C. Then the engine's static-`readonly` strip took it, because the platform's injected tenant column is `readonly: true`, and the driver stamped A. The insert answered 2xx with the row in A, single and array alike. The only signals were a `droppedFields` entry and a WARN. Under `isolated`, a caller that named its own active organization saw the same strip and report, for a value that ended up stored anyway.
+  
+  **What changed.**
+  
+  - **`@objectstack/objectql`.**
+    - `PostHookWriteImageCheck` (reached as `OperationContext.postHookWriteImageCheck`) gains an optional member, `judgesOrganization?: boolean`. An enforcement layer sets it when the seam's `evaluate` holds every inserted row's `organization_id` to the tenant wall.
+    - `ObjectQL.insert` reads that member to decide. When it is set and the object's `organization_id` is the platform's injected tenant column, a non-system caller's explicit `organization_id` stays out of the pre-hook withhold and out of the static-`readonly` strip. The injected column is told apart by the registry's provenance reader; an authored column keeps the strip. The value is then stored as sent where the wall admits it, and refused by the wall where it does not.
+    - When the member is absent or `false`, both passes run exactly as before. That covers a seam that carries only a business `check`, a stack without an enforcement layer, and `validate()`, which runs no middleware.
+  - **`@objectstack/plugin-security`.**
+    - Step 3.7 sets the member only where it composes the wall's own parts into an insert's stored-image seam.
+    - It does not set the member on a business-`check`-only seam, on a crossing platform operator's seam, or on any update.
+    - The wall's admit/refuse set is unchanged: an organization outside the caller's scope is still refused `403 PERMISSION_DENIED`.
+  
+  **What a caller sees.** Every change below is a widening. None of them admits a `(caller, organization)` pair the wall does not already admit, and nothing accepted before is refused now.
+  
+  - **The optional member.** `PostHookWriteImageCheck.judgesOrganization` (`OperationContext.postHookWriteImageCheck`) is new published surface on `@objectstack/objectql`.
+  - **The value is stored as sent.**
+    - Under `group`, an insert naming an organization of the caller's membership set is stored there.
+    - Under `isolated`, an insert naming the active organization is stored as before.
+  - **No longer reported.** Such an organization is no longer reported as dropped: not in `droppedFields`, not through the `onFieldsDropped` listener, and not by the read-only WARN.
+  - **`strictReadonlyWrites` stores it.** An in-process `engine.insert(..., { strictReadonlyWrites: true })` naming such an organization is now stored, where it used to be refused `ERR_READONLY_FIELD_REJECTED`: strict refuses exactly what the strip takes. No REST door can set that flag.
+  - **`beforeInsert` hooks see it.** On a walled insert, `beforeInsert` hooks now see the caller's `organization_id`, because the value will be stored. Before, it was withheld from them.
+  - **A member with no active organization.** Under `group`, such a member with a non-empty membership set can now insert a row naming one of those organizations: it is stored there. It used to be refused `403 PERMISSION_DENIED` under ADR-0123 D2, because the value was taken and the row then named no organization. A row naming none is still refused under D2, and one naming an organization outside the set is still refused by the wall.
+  - **An on-behalf-of insert (ADR-0090 D10).** Take a platform operator who crosses the wall and acts for a walled delegator. The named organization is held to the delegator's wall: stored as sent where that wall admits it, refused `403` where it does not. Before, an admitted value was taken and the active organization stored.
+  - **An explicit empty value in an array insert.** A row naming `organization_id: null` or `''` is no longer taken, reported, or refused under strict. It is still stored as the active organization, because the driver's stamp fills an empty value.
+  - **Only the platform's injected column is spared.** On an object whose author declares its own `organization_id` with `readonly: true`, a caller's value is still taken, reported, and refused under strict, exactly as before. The wall still judges that column. The author's declaration is what keeps the strip, and the injected column is told apart by the registry's provenance reader (`resolveInjectedColumnProvenance`).
+  - **Where no wall judges the column, nothing changes.** The value is still taken and reported, and strict still refuses it. That includes `single`, a composition without the security plugin, a tenancy-disabled object, and a platform operator crossing the wall on its own behalf.
+- 0b8bce4: fix(plugin-security): a `controlled_by_parent` detail's read scope is the engine's `ReadableIds` leaf over its master — one statement per read, no master id list, 200 past the dialect's bind limit
+  
+  Clause-②: no
+  Metadata-protocol: none
+  
+  - **`@objectstack/plugin-security`.** The read derivation for a `controlled_by_parent` object answers `{ masterFK: { $in: ReadableIds.of(master) } }` (ADR-0139 D6, the leaf's seventh consumer) in place of a master id list it pre-scanned under a system context and bound into `$in`. The engine composes the leaf at its executor boundary from this service's own `canReadObject` / `getReadFilter` of the master — recursively down a master chain — and the driver compiles one statement with the master inside a subquery. Measured before: 2 statements per find and 4 per find + count on a detail, and `DATABASE_ERROR` / 500 past ~32,800 masters (`too many SQL variables`). Now: 1 and 2, no scan of the master, and 200 with the right rows at 33,000 masters. Every row set is unchanged: plain, restricted, unrestricted (`viewAllRecords`), delegated (the ADR-0090 D10 intersection), two-level chains, null and dangling master pointers (still excluded), and a caller the master object does not admit (still nothing). A metadata cycle and a chain past the depth bound still answer zero rows, now from a registry-only walk that pre-empts the engine's own refusal. A write verb's predicate carries no leaf (ADR-0139 D1): a predicate write of a detail is narrowed by the read door's answer and judged per master, as before.
+  - **`@objectstack/service-analytics`.** The engine-bound merges (`ObjectQLStrategy.withReadScope`, its FK attribute map, and the plugin's record-label pass) admit the leaf and hand the scope to the engine, which composes it as a find does. `NativeSQLStrategy.canHandle` declines a query whose base or joined object's read scope carries the leaf, so a `controlled_by_parent` object's analytics query routes to the ObjectQL strategy and serves the find path's rows. `compileScopedFilterToSql` refuses a scope carrying the leaf by name, in its existing `READ_SCOPE_COMPILE_FAILED` / 500 envelope: the `/api/v1/analytics/sql` dry-run echo of a `controlled_by_parent` object now refuses where it rendered the bound id list — it runs no composition and shows no statement it would not run. A filter an author writes keeps its judgement on every face.
+  - **`@objectstack/driver-turso`.** The remote face resolves a composed leaf nested inside a composed leaf's scope through `toRemoteWhere` with the outer read's options, so a two-level `controlled_by_parent` chain on a remote Turso datasource answers rows instead of `INTERNAL_ERROR` / 500.
+  - **`@objectstack/spec`.** One nested-leaf row in `READABLE_IDS_CASES`, so every driver's conformance suite measures the shape, and the comparand-shape door's docblock names both callers that pass `admitReadableIds`. No schema, accept set or export of a metadata key moves.
+- 9532e27: fix(plugin-security): a `controlled_by_parent` detail's read scope requires object-level read on its master (ADR-0055 §3)
+  
+  Clause-②: no
+  
+  ADR-0055 §3 says reading a detail requires read access to its master, and §4 says a member who cannot read the master can neither read nor by-id-write a detail under it. The master-derived read scope of a `controlled_by_parent` object scoped the master's rows, but it did not ask whether the principal may read the master object at all. It now asks first, through the predicate `canReadObject` answers. A principal the master's own read door refuses at the object gate gets an empty master set, so it reads no detail under that master.
+  
+  - **Every door that composes the scope.** The engine read door (`find`, `findOne`, `count`), the delegator half of an on-behalf-of read (ADR-0090 D10), `getReadFilter`, and every hop of a chain all answer this way.
+  - **The write doors follow.** A by-id update or delete of such a detail answers the read door's not-found (`RECORD_NOT_FOUND`, 404), as it does for any row the principal cannot read. A predicate update or delete matches no such detail.
+  - **The engine already gave this answer.** Its ADR-0139 `ReadableIds` leaf asks `canReadObject` before it scopes a parent's rows. The id-list derivation and the leaf now agree.
+  - **Unchanged.** A principal that may read the master object keeps its previous answer, whether or not its master rows are scoped. So do a system context, a super-user grant, and an on-behalf-of read whose delegator may read the master.
+- aaee084: fix(plugin-security): a `controlled_by_parent` detail write asks its master the object-level question the master's own write door asks (ADR-0055 §3)
+  
+  Clause-②: no
+  
+  ADR-0055 §3 says editing, deleting or creating a detail requires edit access to its master. The master-edit gate's object-level leg asked only for an object-level `update` grant on the master. It now asks what the master's own write door asks of an `update` on the master, with that door's inputs: the master's security posture must resolve, the capabilities the master requires for `update` (ADR-0066 D3) must be held, and the grant is asked under the master's posture (ADR-0066 D2). A principal the master's own write door refuses at its object gate can no longer write a detail under that master.
+  
+  - **Every door that asks the leg.** An insert, a by-id update and a by-id delete of a detail answer `PERMISSION_DENIED` (403) and write nothing. `checkControlledByParentWrite`, which the comment and attachment parent gates ask, answers `deny` on the `object_permission` leg. A record-grained `security/explain` of a by-id write follows the same leg.
+  - **An insert answers before the reference check.** For such a principal, an insert under a master id that exists answers the same refusal as one under an id that exists nowhere. A principal that also cannot read the master, on an on-behalf-of write too, now gets this `PERMISSION_DENIED` on insert where it got the reference check's `VALIDATION_FAILED`. An insert under a master object that does not resolve answers `PERMISSION_DENIED` where it answered `OBJECT_NOT_FOUND` (404).
+  - **Unchanged.** A principal the master's own write door admits for an `update` keeps writing its details, and so do a super-user grant and a system context. Under a master that is `public`, resolves and requires no capability for `update`, every principal gets the answer it got before.
+- 9340181: fix(plugin-security): step 3.7's tenant write wall is composed by one method, and the write preview asks it about each row
+  
+  Clause-②: yes (widening)
+  
+  Metadata-protocol: none
+  
+  The engine's write preview (`validate()`, the import dry run) runs no middleware, so it never heard the Layer 0 tenant wall's verdict on a row's `organization_id`.
+  
+  - **One spelling of the wall.** Step 3.7's judgement (the no-active-organization pre-test with its delegator leg, the supplied-value forge guard, the emptied organization on update, the #24784 / #24821 no-active-organization insert arms, and whether the wall judges the organization) is composed by one method, `composeWriteTenantWall`. The middleware's payload half and its stored-image seam both call it. Behaviour, refusals and log lines are unchanged.
+  - **New: `SecurityPlugin.writeWallVerdict(object, operation, context, rows)`**, registered on the engine as `registerWriteWallVerdict`. It answers each row from that same method: admitted (and whether the wall judges its organization), or refused with the write's `PermissionDeniedError` code and message. It answers `null` for a system context, a context with no user, and a caller the context prologue refuses before the wall is reached. On an engine without the seam the plugin logs one warning at start and the preview keeps its old answer.
+- 331613c: fix(plugin-security)!: the raw-SQL read scope (`getReadFilter`) answers the deny sentinel for a delegated context the operation prologue refuses — the delegator's membership must back the organization the read runs in, on a walled posture
+  
+  Clause-②: no (narrowing)
+  Metadata-protocol: none
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the read scope the security service answers an in-process caller that builds an on-behalf-of execution context in an organization the delegator does not belong to; the remedy is to build that context in an organization the delegator is a member of, never a rewrite of a package source or a stored row. -->
+  
+  **BREAKING** (the security service's read scope narrows for one context shape). ADR-0021 D-C makes the raw-SQL read scope the find path's scope, and the provider's own contract is agreement with the engine middleware. Under `isolated` or `group`, the delegated-principal prologue already refuses every operation of an on-behalf-of context whose active organization the delegator's membership does not back (ADR-0090 D10, `vetOrganizationClaim`). `getReadFilter` did not ask that question, so for the same context it answered a composed read scope where the find path refuses. It now asks it, once, beside the dangling-delegator refusal it already mirrored.
+  
+  - **FROM:** under `isolated` or `group`, `getReadFilter` for an execution context carrying `onBehalfOf` and an active organization the delegator is not a member of answered a read scope composed from the two principals' layers, where the engine's find refuses the same context.
+  - **TO:** it answers `RLS_DENY_FILTER` itself (the spec's sentinel, by reference), so a door that bypasses the engine reads zero rows for that context, as the engine's find refuses it.
+  - **Unchanged:** the `single` posture, an on-behalf-of context with no active organization, an on-behalf-of context in an organization the delegator is a member of, a context without `onBehalfOf`, a dangling delegator (still the deny sentinel) and system contexts. The `/mcp` OAuth door, the one producer of an on-behalf-of context in the platform, vets the request's organization against the same membership, so the contexts it builds keep their scope.
+  - **The fix for an in-process producer:** code that builds an `ExecutionContext` with `onBehalfOf` by hand and hands it to the security service or to the analytics service must set its `tenantId` to an organization the delegating user is a member of, or leave it unset.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [7035682]
+- Updated dependencies [d606fc1]
+- Updated dependencies [a8b44d4]
+- Updated dependencies [78ab647]
+- Updated dependencies [73a2b52]
+- Updated dependencies [5872450]
+- Updated dependencies [9ea5afe]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [5d2c5a1]
+- Updated dependencies [066dabc]
+- Updated dependencies [4b8f597]
+- Updated dependencies [2069b81]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [ba244f1]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+- Updated dependencies [f7d7403]
+  - @objectstack/core@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/metadata-core@18.1.0
+  - @objectstack/platform-objects@18.1.0
+  - @objectstack/formula@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Major Changes

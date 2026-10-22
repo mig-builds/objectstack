@@ -1,5 +1,125 @@
 # @objectstack/cloud-connection
 
+## 18.1.0
+
+### Minor Changes
+
+- 78ab647: feat(cloud-connection): `GET /api/v1/runtime/config` serves the Branding settings' name, logo and colour, falling back to `OS_PRODUCT_NAME`, `OS_LOGO_URL` and `OS_BRAND_COLOR`
+  
+  Clause-②: no (the served `branding` block keeps its shape and no exported type changes; only where its values come from moves)
+  
+  `RuntimeConfigPlugin` reads the `branding` settings namespace on every request, so Setup → Branding changes the console and the sign-in page on their next load:
+  
+  - `branding.productName` ← `branding.workspace_name`
+  - `branding.logoUrl` ← `branding.logo_url`
+  - `branding.brandColor` ← `branding.accent_color`
+  
+  A value somebody set wins (saved in Setup, or pinned by the settings layer's own `OS_BRANDING_*` variable). A key nobody set falls back exactly as before: the host's constructor option, then `OS_PRODUCT_NAME` / `OS_LOGO_URL` / `OS_BRAND_COLOR`, then the built-in default. `productShortName`, `pwaDescription` and `pwaThemeColor` follow the name and colour actually served, unless configured themselves. `brandColor` keeps its meaning: the console's browser and installed-app theme colour, beside each app's own `AppBranding` colours.
+  
+  The door reads the settings only when the settings service lists the `branding` namespace. `@objectstack/service-settings` withholds it under the `group` and `isolated` tenancy postures, so on a walled deployment no tenant data reaches this anonymous door and the deployment's `OS_*` branding is served, as before. A settings read that fails serves the deployment's branding and logs one warning; the door never answers 500 for it.
+- ae58b26: fix(cloud-connection)!: a runtime holding the environment service key is platform-managed, so it registers no Cloud Connection Setup page and refuses to disconnect; everywhere else the Cloud Connection entry moves to Setup's Integrations group
+  
+  A runtime whose control-plane credential is the environment service key (`controlPlaneApiKey`, or `OS_CLOUD_API_KEY`, which the cloud sets on the environments it hosts) is connected by the platform, not by anyone on the runtime. It still registered the Cloud Connection page in Setup's Apps group, which read "Connected" and offered Disconnect. Disconnecting there cleared the runtime's stored device credential while the service key stayed in use, so the page went on reading "Connected", and the control plane was asked to revoke a connection the platform had made.
+  
+  Such a runtime now registers neither the page nor its navigation entry, and says so once at boot. A request to disconnect it is refused with `409` and `RESOURCE_CONFLICT`, after the sign-in and capability checks and before anything is revoked or cleared. The message says the platform manages the connection.
+  
+  A self-hosted or local runtime, connected through the device-code flow, keeps the page and its disconnect unchanged. Its Cloud Connection entry moves from the Apps group to the Integrations group, after Webhooks, Datasources and Connect an Agent. That group requires `manage_platform_settings`, so a user who holds Setup Access without it, such as an organization administrator, no longer sees the entry.
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is what a runtime holding the environment service key serves: it no longer registers the Cloud Connection page or its navigation entry, and it refuses a disconnect it used to carry out. The navigation entry's new group is a value inside an exported constant whose type is unchanged. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (on a runtime holding the environment service key, a disconnect request it carried out is now refused, and the Cloud Connection page and its navigation entry are no longer served), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  - **Unchanged:** a runtime without the service key, apart from the entry's group and the permission its connect and disconnect requests and its connection details require, which another change in this release raises to `manage_platform_settings`. The connection status answer is otherwise unchanged on every runtime.
+  - **Nothing to rewrite:** a cloud-hosted environment's connection is the platform's to manage. A self-hosted server leaves `OS_CLOUD_API_KEY` unset, as the deployment guide says; one that sets it is platform-managed by this rule.
+
+### Patch Changes
+
+- c71d03a: fix(cloud-connection)!: one rule for the Cloud Connection capability — the page's record and its three connection-changing requests require `manage_platform_settings`, like its Setup entry; a server holding the environment service key also refuses `bind/start` and `bind/poll`
+  
+  Clause-②: no (narrowing)
+  Metadata-protocol: none
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is which signed-in callers the Cloud Connection routes serve: the capability they read moves from `setup.access` to `manage_platform_settings`, and a server holding the environment service key refuses two more of them. The navigation entry's added `requiredPermissions` is a value inside an exported constant whose type is unchanged. -->
+  
+  **BREAKING** (a signed-in user who holds Setup Access, `setup.access`, without Manage Platform Settings, `manage_platform_settings`, such as an organization administrator under the default permission sets, can no longer connect or disconnect the server, and is no longer served the connection's details), shipped as `patch`: the change is to which callers the routes serve, not to the metadata protocol.
+  
+  The Cloud Connection page's Setup entry sits in the Integrations group, which requires `manage_platform_settings`. The page's routes still took `setup.access` alone, so an organization administrator, whose default permission set carries Setup Access but not Manage Platform Settings, was not shown the entry but could open the page by its address and connect or disconnect the server. One rule now covers the entry, the page and the routes:
+  
+  - **Refused now:** `POST /api/v1/cloud-connection/bind/start`, `POST /api/v1/cloud-connection/bind/poll` and `POST /api/v1/cloud-connection/unbind` answer a signed-in user who does not hold `manage_platform_settings` with `403` and the standard `PERMISSION_DENIED` code, and the message names that capability. Holding `setup.access` is no longer enough. The refusal still comes before any call to the cloud and before the stored credential is touched.
+  - **Narrowed now:** `GET /api/v1/cloud-connection/status` serves `environmentId` and `connection` only to a user who holds `manage_platform_settings`. Every other caller, an organization administrator included, is served `bound`, `runtimeId` and `provider`, as an anonymous caller is.
+  - **Declared on the entry:** the Cloud Connection navigation entry now declares `requiredPermissions: ['manage_platform_settings']` itself, the capability its group already required, so the entry and the routes read one rule from this package. The page carries no permission key of its own (a page has none); what it shows is served by these routes.
+  - **Refused on a platform-managed server:** a server holding the environment service key (`controlPlaneApiKey`, or `OS_CLOUD_API_KEY`) already refused `unbind` with `409` and `RESOURCE_CONFLICT`. It now refuses `bind/start` and `bind/poll` the same way, after the sign-in and capability checks and before any call to the cloud or any write to the stored credential. A device connection completed there used to store a credential the service key always overrode, while presenting that key to the cloud, which could move the environment's cloud-side connection record. The message now says the connection cannot be connected or disconnected here, and that nothing was sent to the cloud and nothing was stored or cleared.
+  - **Unchanged:** a user who holds `manage_platform_settings`, which the default platform-administrator permission set carries, is served exactly as before on a server without the service key. Anonymous callers still get `401`, and a session the authentication policy is holding still gets its `403`. The device-code flow's steps, the status answer for a permitted caller, and the four other session routes (`install`, `installation`, `installed`, `org-packages`) are unchanged.
+  
+  **Who acts:** a deployment that relies on organization administrators, or another set holding only Setup Access, to connect its server grants `manage_platform_settings` to those users, through a permission set or a position, and they are served as before.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [d5d8146]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [72518d2]
+- Updated dependencies [e7befa7]
+- Updated dependencies [4cef6e2]
+- Updated dependencies [55d7aab]
+- Updated dependencies [5050442]
+- Updated dependencies [2b1382a]
+- Updated dependencies [e282f32]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [9cfc575]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [688052e]
+- Updated dependencies [6b656bf]
+- Updated dependencies [2069b81]
+- Updated dependencies [157ebd0]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [f8c5fb3]
+- Updated dependencies [d96f618]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [9340181]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [db9c02a]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [a1e51d6]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [504d8b3]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+- Updated dependencies [3a440b0]
+  - @objectstack/core@18.1.0
+  - @objectstack/runtime@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/metadata-protocol@18.1.0
+  - @objectstack/objectql@18.1.0
+  - @objectstack/metadata-core@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

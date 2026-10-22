@@ -1,5 +1,203 @@
 # @objectstack/runtime
 
+## 18.1.0
+
+### Minor Changes
+
+- 4cef6e2: fix(runtime)!: `POST /api/v1/packages/:id/adopt-orphans` refuses a read-only package with `422 WRITABLE_PACKAGE_REQUIRED`, as the other package write doors already do
+  
+  ADR-0070 D2 makes a package the deployment ships read-only: one booted by code, one installed from the marketplace, and one whose manifest `scope` is `system` or `cloud`. `isWritablePackage` is that rule, and every other door that changes a package (`POST /packages` with `overwrite`, `PATCH /packages/:id`, `PATCH /packages/:id/disable`, `POST /packages/:id/publish`, `POST /packages/:id/revert`, `DELETE /packages/:id`) refuses such a package with `422 WRITABLE_PACKAGE_REQUIRED`. The orphan-adoption door never asked the rule, and the protocol's `reassignOrphanedMetadata` asks none of its own: it rebinds every package-less `sys_metadata` row to whatever id it is handed. So a `manage_metadata` holder's adoption into such a package answered `200` and bound the environment's loose items into it. The door now asks the same rule after the capability gate and the walled refusal, and before the protocol is resolved.
+  
+  Clause-②: no (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is the answer one runtime REST door gives a caller who asks it to adopt the environment's package-less items into a package the deployment ships; the remedy is to adopt them into a package the caller owns, never a rewrite of a package source or a stored row. Rows an earlier adoption already bound to a read-only package are not touched. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (a REST door's accept set narrows), shipped as `minor` under the launch-window convention for breaking changes.
+  
+  - **FROM:** `POST /api/v1/packages/:id/adopt-orphans` naming a read-only package answered `200` with `{ success, reassignedCount, reassigned, targetPackageId }` and rebound every package-less `sys_metadata` row to that package.
+  - **TO:** the same request answers `422` with `error.code: 'WRITABLE_PACKAGE_REQUIRED'` and `error.details.packageId`, and rebinds nothing. Because the refusal comes before the protocol is resolved, a deployment whose protocol cannot adopt answers the same `422` for a read-only package where it answered `501`.
+  - **Unchanged:** a caller without `manage_metadata` is still refused `403` first, and under an `isolated` or `group` tenancy posture a caller below the operator rung is still refused `403 PERMISSION_DENIED` first. A package an organization owns adopts as before, and an id nothing installed still reaches the protocol, which binds the orphans to it as before.
+  - **The fix for an integrator:** a package the deployment ships is managed by the deployment, not over this API. Adopt the loose items into a package you own (create one with `POST /api/v1/packages` if none exists).
+
+### Patch Changes
+
+- 94842ba: feat(core,plugin-security)!: a grant applies only in its own organization — an organization-less grant row confers nothing, and the Default Organization's `admin_full_access` grant is the only platform-admin anchor
+  
+  Clause-②: yes (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No key of any metadata schema is removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite and no tombstone. The data change this relies on is the operator's ownership ceremony, `os migrate organization-ownership`, which an upgraded database must have passed before it boots. -->
+  
+  **BREAKING** for a stored grant row that carries no `organization_id` (`NULL`, absent or blank), shipped as `minor` under the repo's launch-window convention for breaking changes (ADR-0131 D10). After the ownership ceremony no such row exists: it attributes every one to an organization and makes the column NOT NULL, a server refuses a database it did not create or certify, and a fresh install that registers the organization object never writes one. So on a certified or fresh database nothing resolves differently.
+  
+  - **`resolveUserAuthzGrants` / `resolveAuthzContext` (`@objectstack/core`).** A `sys_user_position` or `sys_user_permission_set` row applies only while its organization is the active one. FROM: a row with no organization was "global" and applied in every resolution, including one with no active organization. TO: it applies nowhere, and a resolution with no active organization gets no stored grant at all.
+  - **Platform-admin standing.** FROM: under `single`, an organization-less `admin_full_access` grant anchored `platform_admin`, beside the Default Organization's. TO: only the Default Organization's grant anchors it (still in every organization, and with none active). Walled postures are unchanged: standing there comes from `OS_PLATFORM_OWNER_EMAIL` alone.
+  - **`bootstrapPlatformAdmin` (`@objectstack/plugin-security`).** The existing-admin check reads only the Default Organization's grant. When no Default Organization can be named (a walled posture, or none to name), it reads no grant at all. The walled "no owner email declared" error drops its sentence about a legacy unscoped grant row.
+  - **The delegated-administration gate.** A held position counts toward self-delegation only when its row belongs to the caller's active organization. An organization-less holding, or a caller with no active organization, holds nothing there, which is what the resolver grants. An organization administrator's removal of an organization-less row is refused as "not one of the organization you administer".
+  - **The run-lifecycle refusal (`@objectstack/runtime`).** Under `single` it now names the Default Organization's `admin_full_access` grant as the remedy, where it named an unscoped one.
+  - **What a lean composition sees.** A composition that registers no organization object (`sys_organization`, which plugin-auth ships) still stores grants without an organization, and those grants now confer nothing. No shipped composition does this: `os serve` registers the security plugin only together with plugin-auth.
+  
+  **What an operator does.** Nothing beyond the upgrade itself: run `os migrate organization-ownership` before serving a database that 17.x or an 18.0 pre-release created. The server refuses such a database until you do. If an embedding composes `@objectstack/plugin-security` without plugin-auth, register the organization object so that grants carry an organization.
+- 0091d84: fix: no shipped text says the SQL driver reads organization-less rows, and the in-memory HTTP outbox no longer does
+  
+  Clause-②: no (one fix and texts: the in-memory HTTP outbox's `redeliver()` now answers as `SqlHttpOutbox` already did; no accept set, served body or error code of a shipped composition moves)
+  
+  ADR-0131 D8 retired the driver's `OR organization_id IS NULL` arm. Several shipped texts still described it as the live tenant predicate. They now state the current rule: the tenant term is `organization_id = :tenant`, or `IN (:tenants)` under the `group` posture, and nothing else. No tenant-scoped read reaches an organization-less row on a tenant table.
+  
+  - **`@objectstack/service-messaging` — fix.** `MemoryHttpOutbox.redeliver()` no longer lets a tenant-scoped caller replay a row with no organization. It answers `RESOURCE_NOT_FOUND`, as `SqlHttpOutbox` does through the driver's tenant scope (ADR-0131 D8: no layer has a NULL arm). A caller with no tenant is still unscoped. No shipped composition constructs the in-memory outbox; the messaging plugin always builds `SqlHttpOutbox`. Code that embeds `MemoryHttpOutbox` directly sees the change.
+  - **`@objectstack/service-automation`.** The `[http]` node's warning for a durable callout with no organization no longer says the `sys_http_delivery` row is "a global row every organization's redeliver door can reach". It now says no organization's redeliver door reaches that row.
+  - **`@objectstack/objectql`.** The `sys_record_share` entry of the platform-object tenancy inventory carries an updated `evidence` text.
+  - **`@objectstack/lint`.** `os explain unique/legacy-organization-composite` now says that a new row carries its organization wherever the organization object is registered. A composition that registers no organization object still writes rows whose organization column is NULL.
+  - **`@objectstack/spec`.** The TSDoc of `SharingRuleRow` no longer calls it a 1-to-1 stored shape: `deploymentWide` has no `sys_sharing_rule` column. The TSDoc of `DriverOptions.tenantIds` and of the events `organizationId` member describe the predicate without a NULL arm.
+  - **The other packages.** Code comments only.
+- 9cfc575: fix(service-automation,runtime): a flow whose data node is refused answers its caller with the refusal structured — `details.innerRefusal` and the producer-marked `userMessage` on every door's `400 FLOW_FAILED` — beside an unchanged `message`
+  
+  Clause-②: yes (widening)
+  Metadata-protocol: none
+  
+  Ruling B′ on #24914 (the maintainer's 「同意」, decision batch #379 item 5), the emission half of the contract `@objectstack/spec` declared in #24996. A record save the platform refuses reaches a record form as `code`, `message` and the producer-marked `userMessage`; the same refusal met by a flow's data node used to be flattened into one string (`Node 'ID' failed: create_record(OBJECT) failed: …`), so a screen flow could only show its user that developer text.
+  
+  - **`service-automation`.** The catch arms of `get_record`, `create_record`, `update_record` and `delete_record` read the refusal off the thrown error: the producer-marked `userMessage` (through `declaredUserMessage`) and, for a throw that declared a 4xx answer, `{ code, message }` with `code` in the WIRE spelling the data door answers for the same throw — `UNIQUE_VIOLATION` for a unique refusal, `VALIDATION_FAILED`, `PERMISSION_DENIED`, or the member an app hook's declared status names. `NodeExecutionResult` gains the two optional members, and the engine carries them from the failing node to `AutomationResult.userMessage` / `.innerRefusal` on `execute()`'s failure exit, the `resumeInternal` stranded exit and the retry exits. A fault (no declared answer, or a declared 5xx) carries neither member; nothing is read from message text.
+  - **`runtime`.** The trigger, resume, `/actions` and declared-endpoint doors build their `400 FLOW_FAILED` details through one builder typed as `FlowFailureDetailsSchema` (`errorMessage?`, `summary?`, `innerRefusal?`) and put the run's `userMessage` at the envelope's top level (`ApiErrorSchema.userMessage`). The MCP `resume_run` bridge carries both as the REST resume door serves them. `DomainHandlerDeps.error` gains an optional fourth argument, `extra: { userMessage? }`, the declared slot the doors use; a call without it builds the envelope it always built.
+  - **Unchanged.** Every `error` / `message` text, byte for byte — the node's, the engine's prefix, the stored run, approvals and each door's wording. The in-flow `$error.code` keeps the engine's in-process `DUPLICATE_RECORD`. `error.code` stays `FLOW_FAILED`, and `AutomationResult.code` stays the closed union.
+  
+  **For consumers.** A flow runner can render a refused run the way a record form renders a refused save: the top-level `userMessage` when present, then `details.innerRefusal`, then `message`. A client that does not read the new members keeps its current behaviour. A container that rewords a child's failure into its own (`try_catch` without a catch region, `subflow`) does not forward the members yet; the run then carries none.
+- a1e51d6: fix(runtime)!: the `/mcp` bridge reads objects from the protocol's merged view, so `list_objects` and `describe_object` see every object `GET /api/v1/meta/object` lists, a package object declared `apiEnabled: false` is refused by every data verb, and so is every object of a disabled package (`404 OBJECT_PACKAGE_DISABLED`)
+  
+  Clause-②: no (narrowing)
+  Metadata-protocol: none
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No metadata moves: no spec key, authorable spelling, object definition or stored shape is added, removed, renamed or re-shaped, and no exported declaration is removed or narrowed, so there is nothing for `objectstack migrate meta` to rewrite. What changes is which definition two runtime readers consult: the HTTP MCP bridge's object discovery and the data doors' API-exposure gate now read the protocol's merged view, the definition REST already serves and enforces, instead of the metadata service's copy. An object's own `enable.apiEnabled` / `enable.apiMethods` declaration is now enforced where it was not read; the remedy is the declaration the author already wrote, never a rewrite of a package source or a stored row. The other categories are closed on facts: the package publishes (not unpublished); no ADR-0087 id is named or touched (not registered or already-registered); and nothing exported is removed or narrowed (not runtime-interface-only, type-surface-only or runtime-export-retired). -->
+  
+  **BREAKING** (the data doors' accept set narrows to the object's own declaration), shipped as `patch`: it changes which requests a data door serves, not what a metadata author can write.
+  
+  The `/mcp` bridge answered `list_objects` and `describe_object` from the `metadata` service, and the API-exposure gate every runtime data door asks (`callData`) read the same service. That service holds a copy of an object only where something put one there. On a kernel with an `environmentId` (`os dev`, `os serve`, `os start`, and the cloud single-environment runtime) nothing copies the objects a package or a plugin registers during the boot. So `list_objects` answered a short list as a complete `totalCount`, `describe_object` answered "not found" for every such object, and the gate read the missing copy as "no declaration" and served it. REST listed and refused the same objects.
+  
+  - **Before.** On that kernel, an object a package or a plugin registered during the boot was missing from `list_objects` and answered `Object "NAME" not found` by `describe_object` and `validate_expression`. Declared `apiEnabled: false`, it was served by `query_records`, `get_record` and `aggregate_records`, and `create_record`, `update_record` and `delete_record` reached the store. The runtime dispatcher's `/data` door served it the same way.
+  - **Now.** `list_objects` lists exactly the non-`sys_` objects `GET /api/v1/meta/object` serves the same caller, and `describe_object` answers each of them. Every data verb, on `/mcp` and on the dispatcher's `/data` door, refuses such an object `404 OBJECT_API_DISABLED`, or `405 OBJECT_API_METHOD_NOT_ALLOWED` for a verb its `apiMethods` leaves out, as `RestServer` does.
+  - **Also changed.** A disabled package's objects, where the `metadata` service still held a copy, were listed and described by `/mcp`; they are now omitted, as REST omits them. Every data verb on `/mcp`, and every well-formed request on the dispatcher's `/data` door, now refuses a disabled package's object `404 OBJECT_PACKAGE_DISABLED` at the exposure gate, whatever the object declares: the code and status `RestServer` answers for it on every `/data` route. On that door, as on REST, a body that is not a record is still answered `400 VALIDATION_FAILED` first. Such an object declared `apiEnabled: false` was refused `404 OBJECT_API_DISABLED` where the copy existed. `aggregate_records`, whose arm asks the engine and never the protocol, served a disabled package's exposed object on every kernel, and its object declared `apiEnabled: false` wherever no copy existed. When the metadata store cannot be read, `list_objects` and `describe_object` answer the store's `503 SERVICE_UNAVAILABLE`, as `GET /api/v1/meta/object` does, instead of the `metadata` service's listing.
+  - **Unchanged.** Objects that already had a copy (every object on a kernel without an `environmentId`, a marketplace install on any kernel, and a runtime-authored object) are listed and gated as before, and `describe_object` answers the definition `GET /api/v1/meta/object` serves for them. A host whose `protocol` service has no merged read keeps reading the `metadata` service. If the merged by-name read fails, the gate judges the `metadata` service's copy, as it did before.
+  - **What to do.** Nothing, if the declarations say what you mean. An agent that relied on reaching an object declared `apiEnabled: false` through `/mcp` or the dispatcher's `/data` door was relying on the defect: set `enable.apiEnabled` (or `enable.apiMethods`) on the object to the exposure you want. An agent that read aggregates of a disabled package's objects through `aggregate_records` was relying on the same kind of defect: re-enable the package to restore access, as REST says.
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [d5d8146]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [74fcec1]
+- Updated dependencies [b42c621]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [f90ea67]
+- Updated dependencies [c2d4072]
+- Updated dependencies [78ab647]
+- Updated dependencies [6b9e6df]
+- Updated dependencies [fbb42d9]
+- Updated dependencies [950f949]
+- Updated dependencies [5872450]
+- Updated dependencies [6440cf1]
+- Updated dependencies [72518d2]
+- Updated dependencies [ad8cf92]
+- Updated dependencies [e7befa7]
+- Updated dependencies [02e6d73]
+- Updated dependencies [55d7aab]
+- Updated dependencies [98c3d00]
+- Updated dependencies [5050442]
+- Updated dependencies [2b1382a]
+- Updated dependencies [eee65af]
+- Updated dependencies [72a302a]
+- Updated dependencies [865d2c8]
+- Updated dependencies [2941a19]
+- Updated dependencies [abc25a3]
+- Updated dependencies [e282f32]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [ea08ce5]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [b811c73]
+- Updated dependencies [f802213]
+- Updated dependencies [86d2360]
+- Updated dependencies [688052e]
+- Updated dependencies [5d27d32]
+- Updated dependencies [6b656bf]
+- Updated dependencies [2069b81]
+- Updated dependencies [5d66021]
+- Updated dependencies [7f99616]
+- Updated dependencies [4d99158]
+- Updated dependencies [9532e27]
+- Updated dependencies [157ebd0]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [aaee084]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [f8c5fb3]
+- Updated dependencies [d96f618]
+- Updated dependencies [b289090]
+- Updated dependencies [386f60f]
+- Updated dependencies [d6a5fa3]
+- Updated dependencies [27dc53b]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [4bf079c]
+- Updated dependencies [8c73398]
+- Updated dependencies [f46ef4d]
+- Updated dependencies [3782b2d]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [e5f194b]
+- Updated dependencies [2aaee3b]
+- Updated dependencies [9340181]
+- Updated dependencies [9340181]
+- Updated dependencies [2e242bb]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [4f97aeb]
+- Updated dependencies [c4b49c3]
+- Updated dependencies [db9c02a]
+- Updated dependencies [4e2c42f]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [1b3b65e]
+- Updated dependencies [331613c]
+- Updated dependencies [425c743]
+- Updated dependencies [d609f60]
+- Updated dependencies [6b44efa]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [504d8b3]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+- Updated dependencies [3a440b0]
+  - @objectstack/core@18.1.0
+  - @objectstack/plugin-security@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/metadata-protocol@18.1.0
+  - @objectstack/driver-sql@18.1.0
+  - @objectstack/driver-turso@18.1.0
+  - @objectstack/objectql@18.1.0
+  - @objectstack/driver-memory@18.1.0
+  - @objectstack/metadata-core@18.1.0
+  - @objectstack/plugin-auth@18.1.0
+  - @objectstack/service-datasource@18.1.0
+  - @objectstack/rest@18.1.0
+  - @objectstack/driver-sqlite-wasm@18.1.0
+  - @objectstack/metadata@18.1.0
+  - @objectstack/service-cluster@18.1.0
+  - @objectstack/service-i18n@18.1.0
+  - @objectstack/formula@18.1.0
+  - @objectstack/observability@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

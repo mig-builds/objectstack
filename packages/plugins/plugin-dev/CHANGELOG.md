@@ -1,5 +1,114 @@
 # @objectstack/plugin-dev
 
+## 18.1.0
+
+### Patch Changes
+
+- Updated dependencies [94842ba]
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [d5d8146]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [f90ea67]
+- Updated dependencies [c2d4072]
+- Updated dependencies [78ab647]
+- Updated dependencies [fbb42d9]
+- Updated dependencies [950f949]
+- Updated dependencies [5872450]
+- Updated dependencies [6440cf1]
+- Updated dependencies [72518d2]
+- Updated dependencies [ad8cf92]
+- Updated dependencies [e7befa7]
+- Updated dependencies [02e6d73]
+- Updated dependencies [4cef6e2]
+- Updated dependencies [55d7aab]
+- Updated dependencies [98c3d00]
+- Updated dependencies [5050442]
+- Updated dependencies [2b1382a]
+- Updated dependencies [865d2c8]
+- Updated dependencies [2941a19]
+- Updated dependencies [abc25a3]
+- Updated dependencies [644e4b2]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [9cfc575]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [f802213]
+- Updated dependencies [86d2360]
+- Updated dependencies [688052e]
+- Updated dependencies [6b656bf]
+- Updated dependencies [2069b81]
+- Updated dependencies [9532e27]
+- Updated dependencies [157ebd0]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [dfe60e3]
+- Updated dependencies [aaee084]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [f8c5fb3]
+- Updated dependencies [d96f618]
+- Updated dependencies [b289090]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [4bf079c]
+- Updated dependencies [0f1eeee]
+- Updated dependencies [f46ef4d]
+- Updated dependencies [3782b2d]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [e5f194b]
+- Updated dependencies [2aaee3b]
+- Updated dependencies [9340181]
+- Updated dependencies [9340181]
+- Updated dependencies [2e242bb]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [4f97aeb]
+- Updated dependencies [c4b49c3]
+- Updated dependencies [db9c02a]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [1b3b65e]
+- Updated dependencies [331613c]
+- Updated dependencies [425c743]
+- Updated dependencies [d609f60]
+- Updated dependencies [6b44efa]
+- Updated dependencies [a1e51d6]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [504d8b3]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+- Updated dependencies [3a440b0]
+  - @objectstack/core@18.1.0
+  - @objectstack/plugin-security@18.1.0
+  - @objectstack/runtime@18.1.0
+  - @objectstack/spec@18.1.0
+  - @objectstack/objectql@18.1.0
+  - @objectstack/service-storage@18.1.0
+  - @objectstack/driver-memory@18.1.0
+  - @objectstack/plugin-auth@18.1.0
+  - @objectstack/plugin-hono-server@18.1.0
+  - @objectstack/rest@18.1.0
+  - @objectstack/service-i18n@18.1.0
+  - @objectstack/service-realtime@18.1.0
+  - @objectstack/account@18.1.0
+  - @objectstack/setup@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes

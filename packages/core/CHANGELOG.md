@@ -1,5 +1,81 @@
 # @objectstack/core
 
+## 18.1.0
+
+### Minor Changes
+
+- 94842ba: feat(core,plugin-security)!: a grant applies only in its own organization — an organization-less grant row confers nothing, and the Default Organization's `admin_full_access` grant is the only platform-admin anchor
+  
+  Clause-②: yes (narrowing)
+  
+  <!-- adr-0087: not-required (no-migration-prescription) No key of any metadata schema is removed, renamed or re-shaped, so there is nothing for `objectstack migrate meta` to rewrite and no tombstone. The data change this relies on is the operator's ownership ceremony, `os migrate organization-ownership`, which an upgraded database must have passed before it boots. -->
+  
+  **BREAKING** for a stored grant row that carries no `organization_id` (`NULL`, absent or blank), shipped as `minor` under the repo's launch-window convention for breaking changes (ADR-0131 D10). After the ownership ceremony no such row exists: it attributes every one to an organization and makes the column NOT NULL, a server refuses a database it did not create or certify, and a fresh install that registers the organization object never writes one. So on a certified or fresh database nothing resolves differently.
+  
+  - **`resolveUserAuthzGrants` / `resolveAuthzContext` (`@objectstack/core`).** A `sys_user_position` or `sys_user_permission_set` row applies only while its organization is the active one. FROM: a row with no organization was "global" and applied in every resolution, including one with no active organization. TO: it applies nowhere, and a resolution with no active organization gets no stored grant at all.
+  - **Platform-admin standing.** FROM: under `single`, an organization-less `admin_full_access` grant anchored `platform_admin`, beside the Default Organization's. TO: only the Default Organization's grant anchors it (still in every organization, and with none active). Walled postures are unchanged: standing there comes from `OS_PLATFORM_OWNER_EMAIL` alone.
+  - **`bootstrapPlatformAdmin` (`@objectstack/plugin-security`).** The existing-admin check reads only the Default Organization's grant. When no Default Organization can be named (a walled posture, or none to name), it reads no grant at all. The walled "no owner email declared" error drops its sentence about a legacy unscoped grant row.
+  - **The delegated-administration gate.** A held position counts toward self-delegation only when its row belongs to the caller's active organization. An organization-less holding, or a caller with no active organization, holds nothing there, which is what the resolver grants. An organization administrator's removal of an organization-less row is refused as "not one of the organization you administer".
+  - **The run-lifecycle refusal (`@objectstack/runtime`).** Under `single` it now names the Default Organization's `admin_full_access` grant as the remedy, where it named an unscoped one.
+  - **What a lean composition sees.** A composition that registers no organization object (`sys_organization`, which plugin-auth ships) still stores grants without an organization, and those grants now confer nothing. No shipped composition does this: `os serve` registers the security plugin only together with plugin-auth.
+  
+  **What an operator does.** Nothing beyond the upgrade itself: run `os migrate organization-ownership` before serving a database that 17.x or an 18.0 pre-release created. The server refuses such a database until you do. If an embedding composes `@objectstack/plugin-security` without plugin-auth, register the organization object so that grants carry an organization.
+
+### Patch Changes
+
+- 644e4b2: fix(core): the authorization prelude's grant read names the columns it decides on, so no formula on `sys_user_permission_set` is computed in every request a grant holder makes
+  
+  Clause-②: no (a read's projection: every resolved authz answer is unchanged and pinned so; no accept set, served shape or export moves)
+  
+  `resolveAuthzContext` reads the principal's `sys_user_permission_set` grants on every authenticated request. That read named no columns, so the engine computed every formula field the grant table declares for it, the record title included, though the resolver reads none of them. A title that reads through a lookup (the person's name, one hop through `user_id`) would have cost each request by a principal holding a direct grant one more `sys_user` read and one more round trip: 9 reads in 5 round trips instead of 8 in 4. The read now names exactly the four columns the resolver decides on: `permission_set`, `organization_id`, `valid_from` and `valid_until`. The resolved authorization context is unchanged for every grant state (active, expired, not yet valid, organization-owned, deployment-wide, and the Default Organization's `admin_full_access` grant), and a grant holder's prelude stays at 8 reads in 4 round trips whatever display formula the grant table declares.
+- dfe60e3: fix(core): the import resolves a lookup cell by the target object's stored title field
+  
+  Clause-②: no
+  
+  - **Before.** A lookup cell was matched against the target by its id, then by the lookup's own `displayField`, then by a fixed list of keys (`name`, `title`, `label`, `full_name`, `email`, `username`). The target object's declared title field was never asked. So a cell that named the record by its title, such as `Wren` for a target whose title is `nickname`, answered `reference_not_found`, although the list export writes lookup cells by that same title.
+  - **Now.** After the id and the lookup's `displayField`, the import asks the target's title field, resolved by ADR-0079's one rule (`resolveDisplayField`: `nameField`, then the deprecated `displayNameField` alias, then the derived title). It is read from the same object declaration the import already reads to check the target's exposure, so no extra metadata read is made. Two records that share the title answer `reference_ambiguous`, like the import's other ambiguous matches. The cell is never linked to the first hit.
+  - **A formula title is not matched.** A `formula` field has no stored column, and the engine refuses a filter over it. The import no longer sends that query, for the title or for any other candidate the target declares as a formula, so a cell against a formula title still answers `reference_not_found`. How a formula title should be matched is still open.
+  - **Unchanged.** The fixed fallback keys and their order. The exposure check still runs first: a target whose declared exposure does not serve `list` answers `reference_not_found` for every cell and is never read.
+- Updated dependencies [7cacad5]
+- Updated dependencies [df8bb40]
+- Updated dependencies [0091d84]
+- Updated dependencies [5e9b100]
+- Updated dependencies [7532ea3]
+- Updated dependencies [fde7456]
+- Updated dependencies [de9cd1f]
+- Updated dependencies [e7befa7]
+- Updated dependencies [55d7aab]
+- Updated dependencies [0715fac]
+- Updated dependencies [60b42cd]
+- Updated dependencies [b9a79ef]
+- Updated dependencies [63085c3]
+- Updated dependencies [0b8bce4]
+- Updated dependencies [2069b81]
+- Updated dependencies [1862d8d]
+- Updated dependencies [30d21f6]
+- Updated dependencies [eddffc3]
+- Updated dependencies [69712d5]
+- Updated dependencies [e939357]
+- Updated dependencies [045858f]
+- Updated dependencies [baedcec]
+- Updated dependencies [03c12a5]
+- Updated dependencies [386f60f]
+- Updated dependencies [28c9a2c]
+- Updated dependencies [2354058]
+- Updated dependencies [edcc8ce]
+- Updated dependencies [fccbd9d]
+- Updated dependencies [c8f4c43]
+- Updated dependencies [02ad31a]
+- Updated dependencies [03966ce]
+- Updated dependencies [e3aa111]
+- Updated dependencies [863c580]
+- Updated dependencies [7f5b19d]
+- Updated dependencies [14e7239]
+- Updated dependencies [fe0ec2b]
+- Updated dependencies [dfab597]
+  - @objectstack/spec@18.1.0
+  - @objectstack/types@18.1.0
+
 ## 18.0.0
 
 ### Minor Changes
