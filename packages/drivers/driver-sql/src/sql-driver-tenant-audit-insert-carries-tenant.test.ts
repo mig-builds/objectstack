@@ -86,6 +86,11 @@ describe('[ADR-0131 8c-1] an insert whose row carries its organization is not au
     expect(lines('create')).toHaveLength(1);
   });
 
+  it('create: a null organization is no organization — it still warns', async () => {
+    await refused(driver.create('account', { id: 'a1', organization_id: null, name: 'A1' }));
+    expect(lines('create')).toHaveLength(1);
+  });
+
   it('bulkCreate: ONE row without its organization keeps the line', async () => {
     await refused(driver.bulkCreate('account', [
       { id: 'a1', organization_id: 'org_a', name: 'A1' },
