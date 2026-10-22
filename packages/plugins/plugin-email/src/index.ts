@@ -85,7 +85,12 @@ export {
   type AttachmentReclaimOutcome,
   type ReclaimAttachmentContentOptions,
 } from './attachment-reclaim.js';
-export { renderTemplate, requireVars, htmlToText } from './template-engine.js';
+// [#25190] `renderTemplate` (the HTML-face renderer) is not on this entry: it
+// took a template body inline and rendered it with no save moment, so the
+// hole-placement rule judged where a template is saved or registered could not
+// see it (ruling 6335348115 on #25082, F2 B3). A template is rendered from the
+// mail service by NAME: `IEmailService.renderTemplate` / `sendTemplate`.
+export { requireVars, htmlToText } from './template-engine.js';
 export {
   ResendTransport,
   PostmarkTransport,
