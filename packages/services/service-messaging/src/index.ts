@@ -88,14 +88,16 @@ export type {
 
 // Templates + renderer (ADR-0030 P3)
 //
-// [#25190] The renderer itself (`renderNotification`, and `interpolate`, its
-// plain-text face) is not on this entry: both took a template body inline and
-// rendered it with no save moment, so the hole-placement rule the template
-// object's save hooks run could not see them (ruling 6335348115 on #25082,
-// F2 B3). A notification template is a `sys_notification_template` row, judged
-// when it is saved and rendered by the channels that deliver it.
+// [#25190] `renderNotification` is not on this entry: it took a template body
+// inline and rendered its html face with no save moment, so the hole-placement
+// rule the template object's save hooks run could not see it (ruling
+// 6335348115 on #25082, F2 B3). A notification template is a
+// `sys_notification_template` row, judged when it is saved and rendered by the
+// channels that deliver it. `interpolate` stays: it renders a plain-text face,
+// which that rule judges at no door.
 export {
     NotificationTemplateStore,
+    interpolate,
     TEMPLATE_OBJECT,
     DEFAULT_LOCALE,
 } from './template-renderer.js';

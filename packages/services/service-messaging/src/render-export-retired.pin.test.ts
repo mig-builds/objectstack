@@ -1,30 +1,31 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 /**
- * #25190 — `renderNotification` and `interpolate`, the renderer that took a
- * template body inline, are retired from this package's published entry
- * (ruling 6335348115 on #25082, F2 B3; ADR-0087 `runtime-export-retired`). The
- * hole-placement rule is judged by the `sys_notification_template` save hooks,
- * and a body handed straight to either function was never saved, so they were
- * the one door the rule could not see.
+ * #25190 — `renderNotification`, the renderer that took a template body inline,
+ * is retired from this package's published entry (ruling 6335348115 on #25082,
+ * F2 B3; ADR-0087 `runtime-export-retired`). The hole-placement rule is judged
+ * by the `sys_notification_template` save hooks, and a body handed straight to
+ * it was never saved, so it was the one door the rule could not see.
+ * `interpolate` stays on the entry: it renders a plain-text face, which the
+ * rule judges at no door.
  *
- * Pinned both ways: the entry no longer names them (the template store and the
+ * Pinned both ways: the entry no longer names it (the template store and the
  * channels stay), and a stored template row still renders through a channel
  * built from the entry — the html body with every hole encoded, the subject
- * (`interpolate`'s plain-text face) verbatim.
+ * (the plain-text face) verbatim.
  */
 
 import { describe, it, expect } from 'vitest';
 import * as entry from './index.js';
 
 describe('service-messaging entry: the body-taking renderer is retired (#25190)', () => {
-  it('the published entry does not export renderNotification or interpolate', () => {
+  it('the published entry does not export renderNotification', () => {
     expect('renderNotification' in entry).toBe(false);
-    expect('interpolate' in entry).toBe(false);
   });
 
-  it('THE CONTROL: the entry still exports the template store and the channels that render', () => {
+  it('THE CONTROL: the entry still exports the template store, the plain-text face and the channels that render', () => {
     expect(typeof entry.NotificationTemplateStore).toBe('function');
+    expect(typeof entry.interpolate).toBe('function');
     expect(entry.TEMPLATE_OBJECT).toBe('sys_notification_template');
     expect(typeof entry.createEmailChannel).toBe('function');
     expect(typeof entry.createSmsChannel).toBe('function');
