@@ -95,7 +95,12 @@ async function apply(posture: string, l = ledger()): Promise<OrganizationOwnersh
       posture,
       conflicts: reviewedConflictsOf(reviewed),
     },
-    catalog: { async resolve() { return undefined; } },
+    // The grants' sets are declared: the rewrite verifies each name resolves.
+    catalog: {
+      async resolve(type, name) {
+        return type === 'permission' && ['member_default', 'viewer_readonly'].includes(name) ? { definition: { name } } : undefined;
+      },
+    },
     door: {
       async save(type, name) {
         throw new Error(`no environment save is expected here (${type} ${name})`);
@@ -161,9 +166,8 @@ describe.each(['isolated', 'group'])('walled (%s): a NULL self-registration gran
 
   it('⭐ --apply writes the one-membership grant\'s organization; the reported grants stay NULL, hold certification, and none is deleted', async () => {
     const report = await apply(posture);
-
     expect(report.complete).toBe(true);
-    expect(report.blocking).toBe(1);
+    expect(report.blocking).toBe(3);
     const table = report.tables.find((t) => t.object === 'sys_user_permission_set')!;
     expect(table).toMatchObject({ attributed: 1, remaining: 3, held: { rows: 3 } });
     expect(grants()).toEqual([
