@@ -172,6 +172,7 @@ import {
     classifyDottedFilterHead,
     foldQueryAliasSlots,
     QUERY_TRANSPORT_ALIAS_SLOTS, QUERY_TRANSPORT_DOLLAR_ALIASES, QUERY_TRANSPORT_DOLLAR_PARAMS,
+    QueryPageWindowParamSchema,
     type QueryAliasConflict,
     type DroppedFieldsEvent, type QueryAST, type EngineQueryOptionsParsed,
     type ValidationAdvisoryEvent,
@@ -4776,14 +4777,15 @@ function repeatedQueryParamError(param: string, count: number): Error {
  * Only the two arms a door can deliver are read: a number (a JSON body) and a
  * string (a querystring). Anything else — `true`, which `Number` would quietly
  * make `1` — is refused like any other value that is not a count.
+ *
+ * [#25269] The accept set is the spec's `QueryPageWindowParamSchema`, parsed
+ * here rather than restated: the same declaration is what `FindDataRequestSchema`
+ * and `HttpFindQueryParamsSchema` publish for these parameters, so a client
+ * generated from them is told exactly what this check lets through.
  */
 function pageWindowValue(value: unknown, param: string): number {
-    const n = typeof value === 'number'
-        ? value
-        : typeof value === 'string' && value.trim() !== ''
-            ? Number(value)
-            : Number.NaN;
-    if (Number.isSafeInteger(n) && n >= 0) return n;
+    const window = QueryPageWindowParamSchema.safeParse(value);
+    if (window.success) return window.data;
     // `String` for a number: `JSON.stringify(Infinity)` is `null`.
     const shown = typeof value === 'number' ? String(value) : JSON.stringify(value) ?? String(value);
     const err: any = new Error(
