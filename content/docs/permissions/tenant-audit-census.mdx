@@ -46,11 +46,13 @@ now costs nothing, and the population is **re-derivable** rather than quoted.
 `auditMissingTenant(object, op, options, insertRows)` is gated in this order:
 
 1. `OS_TENANT_AUDIT=0` — off entirely;
-2. `options.bypassTenantAudit` — ObjectQL's `buildDriverOptions` fills it in
-   for an `ExecutionContext.isSystem` write on an object with no tenant column
-   or a federated one (ADR-0131 D13), and for a predicate write the
+2. `options.bypassTenantAudit` — on an `ExecutionContext.isSystem` write the
+   engine sets it only where the object's schema puts the write out of scope:
+   an object with no tenant field, or a federated one (ObjectQL's
+   `buildDriverOptions`). It also sets it on a predicate write the
    organization wall exempted (ADR-0131 D8: the recorded Layer 0 verdict is
-   `none` where the wall would otherwise apply); a caller may also pass it;
+   `none` where the wall would otherwise apply). A caller may still pass it
+   explicitly;
 3. a present `options.tenantId` — the engine fills it from `execCtx.tenantId`;
 4. the deployment posture — the warning is only meaningful on a walled install;
 5. the object having a tenant field;
